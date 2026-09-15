@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv/
+env/
+venv/
+
+# Testing and Logging
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# Data and Models
+*.parquet
+*.pkl
+data/*.csv
+data/*.parquet
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+notebooks-CICOP/*.png
+notebooks-CICOP/*.json
+notebooks-CICOP/*.csv
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Output and Artifacts
+artifacts/
+
+# Frontend
+.streamlit/
+node_modules/

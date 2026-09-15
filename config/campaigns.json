@@ -1,0 +1,37 @@
+{
+    "campaigns": {
+        "WINBACK_STANDARD": {
+            "name": "Standard Win-Back",
+            "description": "Re-engage dormant customers with a bounded discount offer.",
+            "base_amount_inr": 1000,
+            "max_discount_pct": 25,
+            "currency": "INR",
+            "eligible_segments": ["Dormant Multi-Buyers", "One-Time Dormant"],
+            "eligible_propensity_bands": ["1_LOW", "2_MODERATE", "3_HIGH"],
+            "notes": "Base amount is the campaign offer value, not derived from customer AOV."
+        },
+        "WINBACK_HIGH_VALUE": {
+            "name": "High-Value Win-Back",
+            "description": "Premium re-engagement for historically high-value dormant customers.",
+            "base_amount_inr": 2000,
+            "max_discount_pct": 20,
+            "currency": "INR",
+            "eligible_segments": ["Dormant Multi-Buyers"],
+            "eligible_propensity_bands": ["2_MODERATE", "3_HIGH"],
+            "notes": "Higher offer value for customers with demonstrated lifetime spend."
+        },
+        "NURTURE_STANDARD": {
+            "name": "Standard Nurture",
+            "description": "Nurture offer for active customers showing declining engagement.",
+            "base_amount_inr": 750,
+            "max_discount_pct": 15,
+            "currency": "INR",
+            "eligible_segments": ["Recent Repeat Buyers", "Active High-Value"],
+            "eligible_propensity_bands": ["2_MODERATE", "3_HIGH", "4_VERY_HIGH"],
+            "notes": "Lower offer value; these customers are still active."
+        }
+    },
+    "default_campaign": "WINBACK_STANDARD",
+    "currency": "INR",
+    "amount_unit": "paise_x100"
+}

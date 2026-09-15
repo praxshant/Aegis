@@ -1,0 +1,69 @@
+{
+    "signals": {
+        "recency_elevated": {"threshold": 2.0},
+        "spend_declining": {"threshold": 0.70},
+        "frequency_declining": {"threshold": 0.50},
+        "return_risk": {"threshold": 0.15}
+    },
+    "rules": [
+        {
+            "rule_id": "WINBACK_01",
+            "priority": 100,
+            "recommendation": "CREATE_WINBACK_OFFER",
+            "conditions": {
+                "segment": "Dormant Multi-Buyers",
+                "signals": {
+                    "recency_elevated": true
+                }
+            }
+        },
+        {
+            "rule_id": "WINBACK_02",
+            "priority": 90,
+            "recommendation": "CREATE_WINBACK_OFFER",
+            "conditions": {
+                "segment": "One-Time Dormant",
+                "signals": {
+                    "recency_elevated": true
+                }
+            }
+        },
+        {
+            "rule_id": "NURTURE_01",
+            "priority": 80,
+            "recommendation": "TARGETED_NURTURE",
+            "conditions": {
+                "segment": "Recent Repeat Buyers",
+                "signals": {
+                    "spend_declining": true
+                }
+            }
+        },
+        {
+            "rule_id": "RETAIN_01",
+            "priority": 70,
+            "recommendation": "RETENTION_OFFER",
+            "conditions": {
+                "segment": "Active High-Value",
+                "signals": {
+                    "frequency_declining": true
+                }
+            }
+        },
+        {
+            "rule_id": "DEFAULT_01",
+            "priority": 0,
+            "recommendation": "STANDARD_ENGAGEMENT",
+            "conditions": {}
+        }
+    ],
+    "confidence_rules": {
+        "HIGH": {"min_history_days": 90},
+        "MEDIUM": {"min_history_days": 30}
+    },
+    "limits": {
+        "MAX_DISCOUNT_PCT": 25,
+        "MAX_PAYMENT_AMOUNT_INR": 2000,
+        "REQUIRED_CONFIDENCE": "Medium"
+    }
+}
