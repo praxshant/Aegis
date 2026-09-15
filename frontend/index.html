@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aegis — Governed Commerce Agent</title>
+  <meta name="description" content="Aegis: AI-powered commerce reactivation with deterministic governance. The model proposes. The gate decides.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #FCFBF7;
+      --surface: #FFFFFF;
+      --surface-tint: #FFF9EF;
+      --border: #ECE4D6;
+      --border-strong: #DFD1B4;
+      --ink: #1C1712;
+      --ink-dim: #75695A;
+      --ink-faint: #A99C89;
+      --saffron: #F5A623;
+      --saffron-deep: #B36F09;
+      --saffron-wash: #FFF1D6;
+      --emerald: #0DA968;
+      --emerald-deep: #0A7A4C;
+      --emerald-wash: #E1F8EC;
+      --crimson: #E5484D;
+      --crimson-deep: #AD3439;
+      --crimson-wash: #FDEAEA;
+      --teal: #0E9488;
+      --teal-wash: #DEF4F1;
+      --radius-lg: 16px;
+      --radius-md: 10px;
+      --radius-sm: 7px;
+      --shadow-sm: 0 1px 2px rgba(28,23,18,.06);
+      --shadow-md: 0 10px 26px rgba(28,23,18,.08);
+      --font-display: 'Space Grotesk', sans-serif;
+      --font-body: 'IBM Plex Sans', sans-serif;
+      --font-mono: 'IBM Plex Mono', monospace;
+      --spring: cubic-bezier(.32,1.4,.5,1);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    html{-webkit-font-smoothing:antialiased}
+    html,body{background:var(--bg);color:var(--ink);font-family:var(--font-body);line-height:1.5;height:100vh;max-height:100vh;overflow:hidden}
+
+    /* ── Layout ─────────────────────────── */
+    .shell{display:grid;grid-template-columns:300px 1fr;height:100vh;max-height:100vh;overflow:hidden}
+
+    /* ── Sidebar ─────────────────────────── */
+    .sidebar{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;max-height:100vh;overflow:hidden}
+    .sidebar-brand{display:flex;align-items:center;gap:10px;padding:20px 18px 16px;border-bottom:1px solid var(--border)}
+    .brand-mark{width:30px;height:30px;border-radius:8px;background:var(--ink);color:var(--saffron);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .brand-mark svg{width:16px;height:16px}
+    .brand-name{font-family:var(--font-display);font-weight:700;font-size:14px;letter-spacing:.1em}
+    .status-pill{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;color:var(--ink-dim);text-transform:uppercase;background:var(--surface-tint);border:1px solid var(--border);padding:4px 10px;border-radius:999px;margin-left:auto}
+    .dot{width:5px;height:5px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 3px var(--teal-wash)}
+
+    /* ── Ingestion zone ─────────────────────────── */
+    .ingest-zone{padding:14px 16px;border-bottom:1px solid var(--border)}
+    .zone-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:10px}
+    .file-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+    .file-input-wrap{flex:1;position:relative;overflow:hidden}
+    .file-input-wrap input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    .file-fake{background:var(--surface-tint);border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--ink-dim);font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .btn{font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:.06em;cursor:pointer;border:none;border-radius:var(--radius-sm);padding:7px 14px;transition:.15s}
+    .btn-primary{background:var(--saffron);color:var(--ink);border:1px solid var(--saffron-deep)}
+    .btn-primary:hover{background:#f0a010}
+    .btn-primary:disabled{opacity:.5;cursor:not-allowed}
+    .btn-ghost{background:none;color:var(--ink-dim);border:1px solid var(--border)}
+    .btn-ghost:hover{background:var(--surface-tint)}
+    .progress-wrap{display:none;flex-direction:column;gap:4px}
+    .progress-wrap.visible{display:flex}
+    .prog-row{display:flex;justify-content:space-between;font-size:11px;font-family:var(--font-mono);color:var(--ink-dim)}
+    .prog-track{background:var(--border);border-radius:999px;height:5px;overflow:hidden}
+    .prog-fill{background:var(--saffron);height:100%;width:0;transition:width .3s}
+    .prog-stats{font-size:11px;font-family:var(--font-mono);color:var(--ink-faint)}
+
+    /* ── Roster ─────────────────────────── */
+    .roster-head{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 8px;border-bottom:1px solid var(--border)}
+    .roster-head-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint)}
+    .roster{overflow-y:auto;flex:1;padding:8px}
+    .cust-card{display:block;width:100%;text-align:left;background:none;border:1px solid transparent;border-radius:var(--radius-sm);padding:10px 10px;cursor:pointer;transition:.12s;margin-bottom:4px}
+    .cust-card:hover{background:var(--surface-tint);border-color:var(--border)}
+    .cust-card.active{background:var(--saffron-wash);border-color:var(--saffron-deep)}
+    .cust-row-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
+    .cust-id{font-family:var(--font-display);font-weight:600;font-size:13px;color:var(--ink)}
+    .cust-band{font-family:var(--font-mono);font-size:10px;color:var(--ink-faint)}
+    .cust-row-bot{display:flex;justify-content:space-between;font-size:11px}
+    .cust-seg{color:var(--ink-faint);text-transform:uppercase;letter-spacing:.04em}
+    .cust-score{color:var(--saffron-deep);font-weight:600;font-family:var(--font-mono)}
+    .roster-empty{padding:20px 16px;font-size:13px;color:var(--ink-dim);text-align:center}
+
+    /* ── Search bar ─────────────────────────── */
+    .search-bar{padding:8px 12px;border-bottom:1px solid var(--border);position:relative}
+    .search-input{width:100%;font-family:var(--font-mono);font-size:12px;padding:6px 10px 6px 30px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-tint);color:var(--ink);outline:none;transition:.12s}
+    .search-input:focus{border-color:var(--saffron-deep);background:var(--surface)}
+    .search-icon{position:absolute;left:20px;top:50%;transform:translateY(-50%);color:var(--ink-faint);font-size:12px;pointer-events:none}
+
+    /* ── Checkbox ─────────────────────────── */
+    .cust-card{display:flex;align-items:flex-start;gap:8px;width:100%;text-align:left;background:none;border:1px solid transparent;border-radius:var(--radius-sm);padding:8px 10px;cursor:pointer;transition:.12s;margin-bottom:4px}
+    .cust-card:hover{background:var(--surface-tint);border-color:var(--border)}
+    .cust-card.active{background:var(--saffron-wash);border-color:var(--saffron-deep)}
+    .cust-card.selected{background:var(--saffron-wash);border-color:var(--saffron-deep)}
+    .cust-check{flex-shrink:0;width:16px;height:16px;border:1.5px solid var(--border-strong);border-radius:4px;appearance:none;-webkit-appearance:none;cursor:pointer;margin-top:2px;transition:.12s;background:var(--surface)}
+    .cust-check:checked{background:var(--ink);border-color:var(--ink);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 6l3 3 5-5' stroke='%23F5A623' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-size:10px;background-position:center;background-repeat:no-repeat}
+    .cust-info{flex:1;min-width:0}
+    .cust-row-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
+    .cust-id{font-family:var(--font-display);font-weight:600;font-size:13px;color:var(--ink)}
+    .cust-band{font-family:var(--font-mono);font-size:10px;color:var(--ink-faint)}
+    .cust-row-bot{display:flex;justify-content:space-between;font-size:11px}
+    .cust-seg{color:var(--ink-faint);text-transform:uppercase;letter-spacing:.04em}
+    .cust-score{color:var(--saffron-deep);font-weight:600;font-family:var(--font-mono)}
+
+    /* ── Bulk action bar ─────────────────────────── */
+    .bulk-bar{display:none;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);background:var(--saffron-wash);flex-wrap:wrap}
+    .bulk-bar.visible{display:flex}
+    .bulk-count{font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--saffron-deep);flex:1}
+    .btn-danger{background:none;color:var(--crimson-deep);border:1px solid var(--crimson-deep);font-family:var(--font-mono);font-size:11px;padding:5px 10px;border-radius:var(--radius-sm);cursor:pointer;transition:.12s}
+    .btn-danger:hover{background:var(--crimson-wash)}
+    .btn-archive{background:none;color:var(--ink-dim);border:1px solid var(--border-strong);font-family:var(--font-mono);font-size:11px;padding:5px 10px;border-radius:var(--radius-sm);cursor:pointer;transition:.12s}
+    .btn-archive:hover{background:var(--surface-tint)}
+    .btn-clear{background:none;color:var(--ink-faint);border:none;font-family:var(--font-mono);font-size:10px;cursor:pointer;padding:4px 6px}
+
+    /* ── Select-all row ─────────────────────────── */
+    .select-all-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border)}
+    .select-all-check{flex-shrink:0;width:16px;height:16px;border:1.5px solid var(--border-strong);border-radius:4px;appearance:none;-webkit-appearance:none;cursor:pointer;transition:.12s;background:var(--surface)}
+    .select-all-check:checked{background:var(--ink);border-color:var(--ink);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 6l3 3 5-5' stroke='%23F5A623' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-size:10px;background-position:center;background-repeat:no-repeat}
+    .select-all-check.indeterminate{background:var(--ink);border-color:var(--ink);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 6h6' stroke='%23F5A623' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-size:10px;background-position:center;background-repeat:no-repeat}
+    .select-all-label{font-family:var(--font-mono);font-size:11px;color:var(--ink-dim);cursor:pointer}
+
+    /* ── Modal ─────────────────────────── */
+    .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(28,23,18,.5);backdrop-filter:blur(4px);z-index:1000;align-items:center;justify-content:center}
+    .modal-backdrop.open{display:flex}
+    .modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px;max-width:440px;width:90%;box-shadow:var(--shadow-md)}
+    .modal-icon{font-size:28px;margin-bottom:14px}
+    .modal-title{font-family:var(--font-display);font-weight:700;font-size:18px;margin-bottom:8px}
+    .modal-body{font-size:14px;color:var(--ink-dim);margin-bottom:22px;line-height:1.6}
+    .modal-body strong{color:var(--ink)}
+    .modal-actions{display:flex;gap:10px;justify-content:flex-end}
+    .modal-note{font-family:var(--font-mono);font-size:11px;color:var(--ink-faint);background:var(--surface-tint);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:16px}
+
+    /* ── Dataset mode picker ─────────────────────────── */
+    .mode-options{display:flex;flex-direction:column;gap:10px;margin-bottom:20px}
+    .mode-option{display:flex;align-items:flex-start;gap:12px;border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;cursor:pointer;transition:.12s}
+    .mode-option:hover{border-color:var(--saffron-deep);background:var(--saffron-wash)}
+    .mode-option.selected{border-color:var(--saffron-deep);background:var(--saffron-wash)}
+    .mode-radio{flex-shrink:0;width:16px;height:16px;border:1.5px solid var(--border-strong);border-radius:50%;margin-top:3px;position:relative;background:var(--surface)}
+    .mode-option.selected .mode-radio{background:var(--ink);border-color:var(--ink)}
+    .mode-option.selected .mode-radio::after{content:'';position:absolute;width:6px;height:6px;background:var(--saffron);border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%)}
+    .mode-option-content strong{display:block;font-size:14px;margin-bottom:3px}
+    .mode-option-content span{font-size:12px;color:var(--ink-dim)}
+
+    /* ── Main panel ─────────────────────────── */
+    .main{overflow-y:auto;height:100vh;max-height:100vh;display:flex;flex-direction:column}
+
+    /* ── Hero / no selection ─────────────────────────── */
+    .hero{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 40px;text-align:center}
+    .hero-eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--saffron-deep);margin-bottom:16px}
+    .hero h1{font-family:var(--font-display);font-weight:700;font-size:36px;line-height:1.1;letter-spacing:-.01em;margin-bottom:14px}
+    .hero h1 mark{background:linear-gradient(transparent 60%,var(--saffron) 60%);color:var(--ink)}
+    .hero-sub{color:var(--ink-dim);font-size:15px;max-width:52ch;margin-bottom:32px}
+    .pipeline-strip{display:flex;align-items:center;gap:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 24px;box-shadow:var(--shadow-sm)}
+    .pipe-step{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:72px}
+    .pipe-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--surface-tint);border:1px solid var(--border);font-size:16px}
+    .pipe-label{font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim);text-align:center}
+    .pipe-arrow{color:var(--border-strong);font-size:14px;margin:0 4px;padding-bottom:20px}
+
+    /* ── Customer Console ─────────────────────────── */
+    .console{display:none;flex-direction:column;gap:0}
+    .console.active{display:flex}
+
+    .console-header{padding:20px 28px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+    .console-cust-name{font-family:var(--font-display);font-weight:700;font-size:22px}
+    .console-cust-meta{font-size:13px;color:var(--ink-dim);margin-top:4px;font-family:var(--font-mono)}
+    .console-actions{display:flex;gap:8px;flex-shrink:0}
+
+    .console-body{display:flex;flex-direction:column;gap:0}
+
+    /* ── Intelligence Panel ─────────────────────────── */
+    .intel-panel{padding:20px 28px;border-bottom:1px solid var(--border);background:var(--surface)}
+    .panel-eyebrow{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--saffron-deep);margin-bottom:12px;font-weight:600}
+    .intel-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+    .intel-card{background:var(--surface-tint);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px}
+    .ic-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:6px}
+    .ic-value{font-family:var(--font-display);font-weight:700;font-size:22px;color:var(--ink)}
+    .ic-sub{font-size:11px;color:var(--ink-dim);margin-top:3px}
+
+    .signals-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+    .signal-chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;padding:4px 10px;border-radius:999px;border:1px solid}
+    .signal-chip.active{background:var(--saffron-wash);border-color:var(--saffron-deep);color:var(--saffron-deep)}
+    .signal-chip.inactive{background:var(--surface-tint);border-color:var(--border);color:var(--ink-faint)}
+    .signal-dot{width:5px;height:5px;border-radius:50%}
+    .signal-chip.active .signal-dot{background:var(--saffron-deep)}
+    .signal-chip.inactive .signal-dot{background:var(--border-strong)}
+
+    .features-table{width:100%;margin-top:14px;font-size:12px;border-collapse:collapse}
+    .features-table td{padding:4px 8px;font-family:var(--font-mono)}
+    .features-table td:first-child{color:var(--ink-dim);width:55%}
+    .features-table td:last-child{color:var(--ink);font-weight:500;text-align:right}
+    .features-table tr:not(:last-child) td{border-bottom:1px solid var(--border)}
+
+    /* ── Agent Panel ─────────────────────────── */
+    .agent-panel{padding:20px 28px;border-bottom:1px solid var(--border)}
+    .prompt-wrap{display:flex;gap:10px;align-items:flex-start;margin-bottom:14px}
+    .prompt-textarea{flex:1;font-family:var(--font-body);font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;resize:vertical;min-height:60px;line-height:1.5}
+    .prompt-textarea:focus{outline:2px solid var(--saffron-deep);outline-offset:1px;border-color:transparent}
+
+    /* ── Result pipeline view ─────────────────────────── */
+    .result-stages{display:none;flex-direction:column;gap:0}
+    .result-stages.visible{display:flex}
+
+    .stage{border-bottom:1px solid var(--border)}
+    .stage-head{display:flex;align-items:center;gap:12px;padding:14px 28px;cursor:pointer;user-select:none}
+    .stage-head:hover{background:var(--surface-tint)}
+    .stage-num{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;font-weight:600;flex-shrink:0}
+    .stage-num.pending{background:var(--border);color:var(--ink-dim)}
+    .stage-num.running{background:var(--saffron-wash);color:var(--saffron-deep);animation:pulse 1s infinite}
+    .stage-num.approved{background:var(--emerald-wash);color:var(--emerald-deep)}
+    .stage-num.denied{background:var(--crimson-wash);color:var(--crimson-deep)}
+    .stage-num.done{background:var(--surface-tint);color:var(--ink-dim)}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+    .stage-title{font-weight:600;font-size:14px;flex:1}
+    .stage-badge{font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:999px;font-weight:600}
+    .badge-approved{background:var(--emerald-wash);color:var(--emerald-deep)}
+    .badge-denied{background:var(--crimson-wash);color:var(--crimson-deep)}
+    .badge-pending{background:var(--border);color:var(--ink-dim)}
+    .badge-running{background:var(--saffron-wash);color:var(--saffron-deep)}
+    .badge-done{background:var(--surface-tint);color:var(--ink-dim)}
+    .stage-chevron{color:var(--ink-faint);transition:.2s;font-size:12px}
+    .stage.open .stage-chevron{transform:rotate(90deg)}
+
+    .stage-body{display:none;padding:0 28px 18px}
+    .stage.open .stage-body{display:block}
+    .stage-json{font-family:var(--font-mono);font-size:12px;line-height:1.7;background:#1C1712;color:#FCFBF7;padding:16px;border-radius:var(--radius-sm);overflow-x:auto;white-space:pre-wrap}
+    .json-key{color:#F5A623}
+    .json-str{color:#0DA968}
+    .json-num{color:#69B5FF}
+    .json-bool-true{color:#0DA968}
+    .json-bool-false{color:#E5484D}
+    .json-null{color:#A99C89}
+
+    .policy-box{display:flex;align-items:flex-start;gap:14px;padding:14px;border-radius:var(--radius-md);margin-bottom:12px}
+    .policy-box.approved{background:var(--emerald-wash);border:1px solid var(--emerald-deep)}
+    .policy-box.denied{background:var(--crimson-wash);border:1px solid var(--crimson-deep)}
+    .policy-icon{font-size:20px;flex-shrink:0;margin-top:2px}
+    .policy-verdict{font-weight:700;font-size:15px;margin-bottom:4px}
+    .policy-reason{font-size:13px;color:var(--ink-dim)}
+
+    .rzp-link-card{display:flex;align-items:center;gap:14px;background:var(--surface-tint);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px}
+    .rzp-icon{font-size:22px}
+    .rzp-link{font-family:var(--font-mono);font-size:12px;color:var(--teal);text-decoration:underline;word-break:break-all}
+    .rzp-amount{font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--ink);margin-left:auto}
+
+    .audit-row{display:flex;gap:12px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
+    .audit-row:last-child{border-bottom:none}
+    .audit-ts{font-family:var(--font-mono);color:var(--ink-faint);flex-shrink:0;min-width:90px}
+    .audit-event{font-family:var(--font-mono);font-weight:600;color:var(--ink);flex-shrink:0;min-width:130px}
+    .audit-actor{color:var(--ink-dim)}
+    .audit-status{font-family:var(--font-mono);font-size:10px;padding:2px 6px;border-radius:999px;margin-left:auto;flex-shrink:0}
+    .audit-status.SUCCESS{background:var(--emerald-wash);color:var(--emerald-deep)}
+    .audit-status.DENIED{background:var(--crimson-wash);color:var(--crimson-deep)}
+    .audit-status.APPROVED{background:var(--emerald-wash);color:var(--emerald-deep)}
+    .audit-status.IN_PROGRESS{background:var(--saffron-wash);color:var(--saffron-deep)}
+    .audit-status.FAILED{background:var(--crimson-wash);color:var(--crimson-deep)}
+
+    /* spinner */
+    .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--border-strong);border-top-color:var(--saffron-deep);border-radius:50%;animation:spin .6s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ═══════════════════ SIDEBAR ═══════════════════ -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+      </div>
+      <div class="brand-name">AEGIS</div>
+      <div class="status-pill"><div class="dot"></div>LIVE</div>
+    </div>
+
+    <!-- Ingestion Zone -->
+    <div class="ingest-zone">
+      <div class="zone-label">Data Ingestion</div>
+      <div class="file-row">
+        <div class="file-input-wrap" style="flex:1">
+          <div class="file-fake" id="fileName">Choose CSV…</div>
+          <input type="file" id="csvFile" accept=".csv">
+        </div>
+        <button class="btn btn-primary" id="uploadBtn">Ingest</button>
+      </div>
+      <div class="progress-wrap" id="progressWrap">
+        <div class="prog-row">
+          <span id="progStatus">Processing…</span>
+          <span id="progPct">0%</span>
+        </div>
+        <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+        <div class="prog-stats" id="progStats"></div>
+      </div>
+    </div>
+
+    <!-- Customer Roster -->
+    <div class="roster-head">
+      <div class="roster-head-label">Customers (<span id="rosterCount">0</span>)</div>
+      <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" id="refreshBtn">↺ Refresh</button>
+    </div>
+
+    <!-- Search -->
+    <div class="search-bar">
+      <span class="search-icon">⌕</span>
+      <input type="text" class="search-input" id="searchInput" placeholder="Search customers…">
+    </div>
+
+    <!-- Select-all row -->
+    <div class="select-all-row">
+      <input type="checkbox" class="select-all-check" id="selectAllCheck">
+      <label class="select-all-label" for="selectAllCheck">Select all</label>
+    </div>
+
+    <!-- Bulk action bar (hidden until selection) -->
+    <div class="bulk-bar" id="bulkBar">
+      <span class="bulk-count" id="bulkCount">0 selected</span>
+      <button class="btn-archive" id="archiveBtn">Archive</button>
+      <button class="btn-danger" id="deleteBtn">Delete</button>
+      <button class="btn-clear" id="clearSelBtn">✕ Clear</button>
+    </div>
+
+    <div class="roster" id="roster">
+      <div class="roster-empty">Loading…</div>
+    </div>
+  </aside>
+
+  <!-- ═══════════════════ MAIN ═══════════════════ -->
+  <main class="main">
+
+    <!-- Hero (shown before customer selected) -->
+    <div class="hero" id="hero">
+      <div class="hero-eyebrow">Razorpay Buildathon · Governed Commerce</div>
+      <h1>The model <mark>proposes</mark>.<br>The gate decides.</h1>
+      <p class="hero-sub">Select a customer from the sidebar to run the full Aegis pipeline — from ML intelligence through LLM reasoning, deterministic policy gating, and Razorpay execution.</p>
+      <div class="pipeline-strip">
+        <div class="pipe-step"><div class="pipe-icon">📊</div><div class="pipe-label">Data</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><div class="pipe-icon">🧠</div><div class="pipe-label">ML Model</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><div class="pipe-icon">✦</div><div class="pipe-label">Aegis Agent</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><div class="pipe-icon">⚖️</div><div class="pipe-label">Policy Gate</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><div class="pipe-icon">💳</div><div class="pipe-label">Razorpay</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step"><div class="pipe-icon">📋</div><div class="pipe-label">Audit Ledger</div></div>
+      </div>
+    </div>
+
+    <!-- Customer Console -->
+    <div class="console" id="console">
+
+      <div class="console-header">
+        <div>
+          <div class="console-cust-name" id="ccName">—</div>
+          <div class="console-cust-meta" id="ccMeta">—</div>
+        </div>
+        <div class="console-actions">
+          <button class="btn btn-ghost" id="backBtn">← Back</button>
+          <button class="btn btn-primary" id="runBtn">▶ Run Aegis Pipeline</button>
+        </div>
+      </div>
+
+      <!-- 1. ML Intelligence -->
+      <div class="intel-panel">
+        <div class="panel-eyebrow">1 · Machine Learning Intelligence</div>
+        <div class="intel-grid" id="intelGrid">
+          <div class="intel-card"><div class="ic-label">Loading</div><div class="ic-value">…</div></div>
+        </div>
+        <div class="signals-row" id="signalsRow"></div>
+        <table class="features-table" id="featuresTable"></table>
+      </div>
+
+      <!-- 2. Agent Prompt -->
+      <div class="agent-panel">
+        <div class="panel-eyebrow">2 · LLM Agent Prompt</div>
+        <div class="prompt-wrap">
+          <textarea class="prompt-textarea" id="promptTA" rows="2">Assess this customer for a win-back reactivation offer. Be precise.</textarea>
+          <button class="btn btn-primary" id="runBtn2">▶ Execute</button>
+        </div>
+      </div>
+
+      <!-- Pipeline result stages -->
+      <div class="result-stages" id="resultStages">
+
+        <!-- Stage: Agent Proposal -->
+        <div class="stage open" id="stageAgent">
+          <div class="stage-head" onclick="toggleStage('stageAgent')">
+            <div class="stage-num pending" id="snAgent">3</div>
+            <div class="stage-title">LLM Agent Proposal</div>
+            <div class="stage-badge badge-pending" id="sbAgent">PENDING</div>
+            <div class="stage-chevron">›</div>
+          </div>
+          <div class="stage-body">
+            <pre class="stage-json" id="sjAgent">Waiting for execution…</pre>
+          </div>
+        </div>
+
+        <!-- Stage: Policy Gate -->
+        <div class="stage open" id="stagePolicy">
+          <div class="stage-head" onclick="toggleStage('stagePolicy')">
+            <div class="stage-num pending" id="snPolicy">4</div>
+            <div class="stage-title">Deterministic Policy Gate</div>
+            <div class="stage-badge badge-pending" id="sbPolicy">PENDING</div>
+            <div class="stage-chevron">›</div>
+          </div>
+          <div class="stage-body" id="sjPolicy">
+            <p style="color:var(--ink-dim);font-size:13px">Awaiting agent proposal…</p>
+          </div>
+        </div>
+
+        <!-- Stage: Razorpay Execution -->
+        <div class="stage open" id="stageRzp">
+          <div class="stage-head" onclick="toggleStage('stageRzp')">
+            <div class="stage-num pending" id="snRzp">5</div>
+            <div class="stage-title">Razorpay Execution</div>
+            <div class="stage-badge badge-pending" id="sbRzp">PENDING</div>
+            <div class="stage-chevron">›</div>
+          </div>
+          <div class="stage-body" id="sjRzp">
+            <p style="color:var(--ink-dim);font-size:13px">Awaiting policy gate…</p>
+          </div>
+        </div>
+
+        <!-- Stage: Audit Ledger -->
+        <div class="stage open" id="stageAudit">
+          <div class="stage-head" onclick="toggleStage('stageAudit')">
+            <div class="stage-num pending" id="snAudit">6</div>
+            <div class="stage-title">Audit Ledger</div>
+            <div class="stage-badge badge-pending" id="sbAudit">PENDING</div>
+            <div class="stage-chevron">›</div>
+          </div>
+          <div class="stage-body" id="sjAudit">
+            <p style="color:var(--ink-dim);font-size:13px">Awaiting execution…</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ═══════════════════ CONFIRM MODAL ═══════════════════ -->
+<div class="modal-backdrop" id="confirmModal">
+  <div class="modal">
+    <div class="modal-icon" id="confirmIcon">⚠️</div>
+    <div class="modal-title" id="confirmTitle">Confirm Action</div>
+    <div class="modal-body" id="confirmBody"></div>
+    <div class="modal-note" id="confirmNote">Audit ledger and transaction history are immutable and will be preserved.</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
+      <button class="btn btn-primary" id="confirmOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ DATASET MODAL ═══════════════════ -->
+<div class="modal-backdrop" id="datasetModal">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-icon">📦</div>
+    <div class="modal-title">New Dataset Detected</div>
+    <div class="modal-body" id="datasetModalBody">Ingestion complete. How should Aegis import this dataset?</div>
+    <div class="mode-options">
+      <div class="mode-option selected" data-mode="replace" onclick="selectMode(this)">
+        <div class="mode-radio"></div>
+        <div class="mode-option-content">
+          <strong>Replace Current Dataset</strong>
+          <span>Archive existing customers and make this the active dataset.</span>
+        </div>
+      </div>
+      <div class="mode-option" data-mode="merge" onclick="selectMode(this)">
+        <div class="mode-radio"></div>
+        <div class="mode-option-content">
+          <strong>Merge Into Current Dataset</strong>
+          <span>Add / update customers from this upload alongside existing ones.</span>
+        </div>
+      </div>
+      <div class="mode-option" data-mode="new" onclick="selectMode(this)">
+        <div class="mode-radio"></div>
+        <div class="mode-option-content">
+          <strong>Import as New Dataset</strong>
+          <span>Activate new customers without changing current active records.</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeDatasetModal()">Cancel</button>
+      <button class="btn btn-primary" id="applyDatasetBtn">Apply</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let customers = [];
+let filteredCustomers = [];
+let activeId = null;
+let ingestionRunId = null;
+let selectedIds = new Set();
+let pendingConfirmAction = null;
+let datasetImportRunId = null;
+
+// ── DOM refs ──────────────────────────────────────────
+const heroEl = document.getElementById('hero');
+const consoleEl = document.getElementById('console');
+const rosterEl = document.getElementById('roster');
+const rosterCount = document.getElementById('rosterCount');
+const fileNameEl = document.getElementById('fileName');
+const progressWrap = document.getElementById('progressWrap');
+const progStatus = document.getElementById('progStatus');
+const progPct = document.getElementById('progPct');
+const progFill = document.getElementById('progFill');
+const progStats = document.getElementById('progStats');
+const bulkBar = document.getElementById('bulkBar');
+const bulkCount = document.getElementById('bulkCount');
+const selectAllCheck = document.getElementById('selectAllCheck');
+const searchInput = document.getElementById('searchInput');
+
+// ── Init ──────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  loadCustomers();
+
+  document.getElementById('csvFile').addEventListener('change', e => {
+    const f = e.target.files[0];
+    fileNameEl.textContent = f ? f.name : 'Choose CSV…';
+  });
+  document.getElementById('uploadBtn').addEventListener('click', doUpload);
+  document.getElementById('refreshBtn').addEventListener('click', loadCustomers);
+  document.getElementById('backBtn').addEventListener('click', () => {
+    activeId = null;
+    heroEl.style.display = '';
+    consoleEl.classList.remove('active');
+    renderRoster();
+  });
+  document.getElementById('runBtn').addEventListener('click', runPipeline);
+  document.getElementById('runBtn2').addEventListener('click', runPipeline);
+
+  // Selection controls
+  selectAllCheck.addEventListener('change', () => {
+    if (selectAllCheck.checked) {
+      filteredCustomers.forEach(c => selectedIds.add(c.customer_id));
+    } else {
+      filteredCustomers.forEach(c => selectedIds.delete(c.customer_id));
+    }
+    renderRoster();
+    updateBulkBar();
+  });
+
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.toLowerCase();
+    filteredCustomers = q
+      ? customers.filter(c =>
+          c.customer_id.toLowerCase().includes(q) ||
+          (c.first_name||'').toLowerCase().includes(q) ||
+          (c.last_name||'').toLowerCase().includes(q) ||
+          (c.segment_name||'').toLowerCase().includes(q)
+        )
+      : [...customers];
+    // Clear selection of filtered-out items
+    selectedIds = new Set([...selectedIds].filter(id => filteredCustomers.find(c => c.customer_id === id)));
+    renderRoster();
+    updateBulkBar();
+  });
+
+  document.getElementById('clearSelBtn').addEventListener('click', () => {
+    selectedIds.clear();
+    renderRoster();
+    updateBulkBar();
+  });
+
+  document.getElementById('archiveBtn').addEventListener('click', () => {
+    openConfirm({
+      icon: '📦',
+      title: `Archive ${selectedIds.size} customer${selectedIds.size > 1 ? 's' : ''}?`,
+      body: `<strong>${selectedIds.size} customer${selectedIds.size > 1 ? 's' : ''}</strong> will be archived and removed from the active explorer. All transactions, intelligence, and audit records are preserved.`,
+      okText: 'Archive',
+      action: async () => {
+        await fetch(API + '/customers/archive', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({customer_ids: [...selectedIds]})
+        });
+        selectedIds.clear();
+        await loadCustomers();
+        updateBulkBar();
+      }
+    });
+  });
+
+  document.getElementById('deleteBtn').addEventListener('click', () => {
+    openConfirm({
+      icon: '🗑️',
+      title: `Delete ${selectedIds.size} customer${selectedIds.size > 1 ? 's' : ''}?`,
+      body: `<strong>${selectedIds.size} customer${selectedIds.size > 1 ? 's' : ''}</strong> will be marked as deleted and hidden from the explorer. This cannot be undone from the UI.<br><br>Audit ledger entries, transactions, and model intelligence history are <strong>immutable and will not be deleted</strong>.`,
+      okText: 'Delete',
+      okStyle: 'background:var(--crimson);color:#fff;border-color:var(--crimson-deep)',
+      action: async () => {
+        await fetch(API + '/customers/delete', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({customer_ids: [...selectedIds]})
+        });
+        selectedIds.clear();
+        await loadCustomers();
+        updateBulkBar();
+      }
+    });
+  });
+
+  document.getElementById('confirmCancel').addEventListener('click', closeConfirm);
+  document.getElementById('confirmOk').addEventListener('click', async () => {
+    if (pendingConfirmAction) {
+      document.getElementById('confirmOk').disabled = true;
+      document.getElementById('confirmOk').textContent = '…';
+      await pendingConfirmAction();
+      closeConfirm();
+    }
+  });
+
+  document.getElementById('applyDatasetBtn').addEventListener('click', applyDatasetMode);
+});
+
+// ── Customers ─────────────────────────────────────────
+async function loadCustomers() {
+  try {
+    const res = await fetch(API + '/customers?limit=200');
+    customers = await res.json();
+    filteredCustomers = [...customers];
+    renderRoster();
+  } catch(e) { console.error(e); }
+}
+
+function renderRoster() {
+  rosterCount.textContent = filteredCustomers.length;
+  if (!filteredCustomers.length) {
+    rosterEl.innerHTML = '<div class="roster-empty">No customers found.<br>Upload a CSV to ingest data.</div>';
+    return;
+  }
+
+  const allSelected = filteredCustomers.length > 0 && filteredCustomers.every(c => selectedIds.has(c.customer_id));
+  const someSelected = filteredCustomers.some(c => selectedIds.has(c.customer_id));
+  selectAllCheck.checked = allSelected;
+  selectAllCheck.classList.toggle('indeterminate', someSelected && !allSelected);
+
+  rosterEl.innerHTML = filteredCustomers.map(c => {
+    const score = c.propensity_score != null ? (c.propensity_score * 100).toFixed(0) + '%' : '—';
+    const band = c.propensity_band || '—';
+    const seg = c.segment_name || 'Unknown';
+    const checked = selectedIds.has(c.customer_id) ? 'checked' : '';
+    const isActive = c.customer_id === activeId;
+    const isSelected = selectedIds.has(c.customer_id);
+    return `<div class="cust-card${isActive ? ' active' : ''}${isSelected ? ' selected' : ''}" data-id="${c.customer_id}">
+      <input type="checkbox" class="cust-check" data-id="${c.customer_id}" ${checked} onclick="onCheckClick(event, '${c.customer_id}')">
+      <div class="cust-info" onclick="openCustomer('${c.customer_id}')">
+        <div class="cust-row-top"><span class="cust-id">${c.customer_id}</span><span class="cust-band">${band}</span></div>
+        <div class="cust-row-bot"><span class="cust-seg">${seg}</span><span class="cust-score">${score}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function onCheckClick(event, id) {
+  event.stopPropagation();
+  if (event.target.checked) { selectedIds.add(id); }
+  else { selectedIds.delete(id); }
+  renderRoster();
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  const n = selectedIds.size;
+  bulkBar.classList.toggle('visible', n > 0);
+  bulkCount.textContent = `${n} customer${n !== 1 ? 's' : ''} selected`;
+}
+
+// ── Open Customer Console ─────────────────────────────
+async function openCustomer(id) {
+  activeId = id;
+  renderRoster();
+  heroEl.style.display = 'none';
+  consoleEl.classList.add('active');
+
+  // Reset stages
+  document.getElementById('resultStages').classList.remove('visible');
+  resetStages();
+
+  // Header
+  const c = customers.find(x => x.customer_id === id);
+  document.getElementById('ccName').textContent = (c && c.first_name && c.first_name !== 'User')
+    ? `${c.first_name} ${c.last_name || ''}`.trim() : id;
+  document.getElementById('ccMeta').textContent = `${id} · ${c?.segment_name || 'Unknown'} · propensity ${c?.propensity_band || '—'}`;
+
+  // Load intelligence
+  document.getElementById('intelGrid').innerHTML = '<div class="intel-card"><div class="ic-label">Loading ML intelligence</div><div class="ic-value"><span class="spin"></span></div></div>';
+  document.getElementById('signalsRow').innerHTML = '';
+  document.getElementById('featuresTable').innerHTML = '';
+
+  try {
+    const res = await fetch(API + `/aegis/intelligence/${encodeURIComponent(id)}`);
+    if (!res.ok) throw new Error(await res.text());
+    const intel = await res.json();
+    renderIntelligence(intel);
+  } catch(e) {
+    document.getElementById('intelGrid').innerHTML = `<div class="intel-card" style="grid-column:1/-1"><div class="ic-label">Intelligence Unavailable</div><div class="ic-value" style="font-size:14px;color:var(--crimson)">${e.message}</div></div>`;
+  }
+}
+
+function renderIntelligence(intel) {
+  const scoreStr = intel.purchase_probability_30d != null
+    ? (intel.purchase_probability_30d * 100).toFixed(1) + '%' : '—';
+  const cards = [
+    { label: 'Purchase Probability (30d)', value: scoreStr, sub: intel.propensity_band || '—' },
+    { label: 'Recommendation', value: '', sub: intel.recommendation || '—', large: true },
+    { label: 'Confidence', value: intel.recommendation_confidence || '—', sub: intel.policy_rule_id || '' },
+    { label: 'Evidence Status', value: '', sub: intel.evidence_status || '—', large: true },
+  ];
+  document.getElementById('intelGrid').innerHTML = cards.map(c => `
+    <div class="intel-card">
+      <div class="ic-label">${c.label}</div>
+      <div class="ic-value" style="${c.large ? 'font-size:14px;line-height:1.3;margin-top:4px' : ''}">${c.value}${c.large ? c.sub : ''}</div>
+      ${!c.large ? `<div class="ic-sub">${c.sub}</div>` : ''}
+    </div>`).join('');
+
+  const signals = intel.behavioral_signals || {};
+  document.getElementById('signalsRow').innerHTML = Object.entries(signals).map(([k, v]) =>
+    `<div class="signal-chip ${v ? 'active' : 'inactive'}"><div class="signal-dot"></div>${k.replace(/_/g,' ')}</div>`
+  ).join('');
+
+  const snap = intel.feature_snapshot || {};
+  const rows = [
+    ['Recency', snap.recency_days != null ? snap.recency_days + ' days' : '—'],
+    ['Lifetime', snap.lifetime_days != null ? snap.lifetime_days + ' days' : '—'],
+    ['Orders', snap.purchase_order_count != null ? snap.purchase_order_count : '—'],
+    ['Total Spend', snap.total_net_spend != null ? '₹' + snap.total_net_spend.toLocaleString('en-IN') : '—'],
+    ['Avg Order Value', snap.average_order_value != null ? '₹' + snap.average_order_value.toFixed(2) : '—'],
+    ['90d Spend', snap.net_spend_90d != null ? '₹' + snap.net_spend_90d.toLocaleString('en-IN') : '—'],
+    ['Return Rate', snap.return_rate != null ? (snap.return_rate * 100).toFixed(1) + '%' : '—'],
+  ];
+  document.getElementById('featuresTable').innerHTML = rows.map(([k, v]) =>
+    `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+}
+
+// ── Run Pipeline ──────────────────────────────────────
+async function runPipeline() {
+  if (!activeId) return;
+  const prompt = document.getElementById('promptTA').value.trim() || 'Assess this customer for a win-back reactivation offer.';
+
+  document.getElementById('resultStages').classList.add('visible');
+  resetStages();
+  setStage('Agent', 'running', 'RUNNING');
+  setStagePre('sjAgent', 'Sending to Gemini LLM agent…');
+
+  try {
+    const res = await fetch(API + '/aegis/reactivate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ customer_id: activeId, prompt })
+    });
+    const data = await res.json();
+    renderPipelineResult(data);
+  } catch(e) {
+    setStage('Agent', 'denied', 'ERROR');
+    setStagePre('sjAgent', 'Request failed: ' + e.message);
+  }
+}
+
+function renderPipelineResult(data) {
+  const proposal = data.proposal || {};
+  setStage('Agent', 'done', 'COMPLETE');
+  setStagePre('sjAgent', syntaxHighlight(proposal));
+
+  if (data.status === 'DENIED') {
+    setStage('Policy', 'denied', 'DENIED');
+    document.getElementById('sjPolicy').innerHTML = `
+      <div class="policy-box denied">
+        <div class="policy-icon">🚫</div>
+        <div><div class="policy-verdict">POLICY DENIED</div><div class="policy-reason">${data.reason || 'Policy gate rejected this proposal.'}</div></div>
+      </div>
+      <pre class="stage-json">${syntaxHighlight(proposal)}</pre>`;
+    setStage('Rzp', 'done', 'BLOCKED');
+    document.getElementById('sjRzp').innerHTML = '<p style="color:var(--ink-dim);font-size:13px">Not executed — policy gate denied the proposal.</p>';
+  } else if (data.status === 'EXECUTED') {
+    setStage('Policy', 'approved', 'APPROVED');
+    document.getElementById('sjPolicy').innerHTML = `
+      <div class="policy-box approved">
+        <div class="policy-icon">✅</div>
+        <div><div class="policy-verdict">POLICY APPROVED</div><div class="policy-reason">Proposal passed all deterministic policy rules.</div></div>
+      </div>`;
+    setStage('Rzp', 'approved', 'EXECUTED');
+    const rzp = data.razorpay || {};
+    const amountINR = rzp.amount ? (rzp.amount / 100).toLocaleString('en-IN', {minimumFractionDigits:2}) : '—';
+    document.getElementById('sjRzp').innerHTML = `
+      <div class="rzp-link-card">
+        <div class="rzp-icon">💳</div>
+        <div>
+          <div style="font-size:11px;font-family:var(--font-mono);color:var(--ink-dim);margin-bottom:4px">PAYMENT LINK GENERATED</div>
+          <div class="rzp-link">${rzp.short_url || rzp.id || 'N/A'}</div>
+        </div>
+        <div class="rzp-amount">₹${amountINR}</div>
+      </div>
+      <pre class="stage-json" style="margin-top:12px">${syntaxHighlight(rzp)}</pre>`;
+  } else if (data.status === 'FAILED') {
+    setStage('Policy', 'approved', 'APPROVED');
+    setStage('Rzp', 'denied', 'FAILED');
+    document.getElementById('sjRzp').innerHTML = `<pre class="stage-json">${syntaxHighlight(data)}</pre>`;
+  }
+
+  loadAuditLedger(activeId);
+}
+
+async function loadAuditLedger(customerId) {
+  setStage('Audit', 'running', 'LOADING');
+  try {
+    const res = await fetch(API + `/aegis/audit/${encodeURIComponent(customerId)}`);
+    const events = await res.json();
+    setStage('Audit', 'done', 'RECORDED');
+    const evts = Array.isArray(events) ? events : (events.events || []);
+    const recent = evts.slice(-8).reverse();
+    document.getElementById('sjAudit').innerHTML = recent.length
+      ? recent.map(ev => `<div class="audit-row">
+          <div class="audit-ts">${(ev.timestamp || ev.created_at || '').split('T').pop()?.slice(0,8) || '—'}</div>
+          <div class="audit-event">${ev.event_type || ev.type || '—'}</div>
+          <div class="audit-actor">${ev.actor || '—'}</div>
+          <div class="audit-status ${ev.outcome || ev.status || ''}">${ev.outcome || ev.status || '—'}</div>
+        </div>`).join('')
+      : '<p style="color:var(--ink-dim);font-size:13px">No audit events found.</p>';
+  } catch(e) {
+    setStage('Audit', 'done', 'RECORDED');
+    document.getElementById('sjAudit').innerHTML = '<p style="color:var(--ink-dim);font-size:13px">Audit events logged server-side.</p>';
+  }
+}
+
+// ── Stage helpers ─────────────────────────────────────
+function toggleStage(id) { document.getElementById(id).classList.toggle('open'); }
+
+function resetStages() {
+  ['Agent','Policy','Rzp','Audit'].forEach(s => setStage(s, 'pending', 'PENDING'));
+  setStagePre('sjAgent', 'Waiting for execution…');
+  document.getElementById('sjPolicy').innerHTML = '<p style="color:var(--ink-dim);font-size:13px">Awaiting agent proposal…</p>';
+  document.getElementById('sjRzp').innerHTML = '<p style="color:var(--ink-dim);font-size:13px">Awaiting policy gate…</p>';
+  document.getElementById('sjAudit').innerHTML = '<p style="color:var(--ink-dim);font-size:13px">Awaiting execution…</p>';
+}
+
+function setStage(name, cls, badge) {
+  const sn = document.getElementById('sn' + name);
+  const sb = document.getElementById('sb' + name);
+  if (!sn || !sb) return;
+  sn.className = 'stage-num ' + cls;
+  sb.className = 'stage-badge badge-' + (cls === 'running' ? 'running' : cls === 'approved' || cls === 'done' ? 'done' : cls === 'denied' ? 'denied' : 'pending');
+  sb.textContent = badge;
+}
+
+function setStagePre(id, content) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = typeof content === 'string' ? content : syntaxHighlight(content);
+}
+
+// ── JSON syntax highlight ─────────────────────────────
+function syntaxHighlight(obj) {
+  const json = JSON.stringify(obj, null, 2);
+  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g, match => {
+    let cls = 'json-num';
+    if (/^"/.test(match)) { cls = /:$/.test(match) ? 'json-key' : 'json-str'; }
+    else if (/true/.test(match)) { cls = 'json-bool-true'; }
+    else if (/false/.test(match)) { cls = 'json-bool-false'; }
+    else if (/null/.test(match)) { cls = 'json-null'; }
+    return `<span class="${cls}">${match}</span>`;
+  });
+}
+
+// ── Confirm modal ─────────────────────────────────────
+function openConfirm({icon, title, body, okText, okStyle, action}) {
+  document.getElementById('confirmIcon').textContent = icon || '⚠️';
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmBody').innerHTML = body;
+  const okBtn = document.getElementById('confirmOk');
+  okBtn.textContent = okText || 'Confirm';
+  okBtn.style.cssText = okStyle || '';
+  okBtn.disabled = false;
+  pendingConfirmAction = action;
+  document.getElementById('confirmModal').classList.add('open');
+}
+
+function closeConfirm() {
+  document.getElementById('confirmModal').classList.remove('open');
+  pendingConfirmAction = null;
+  document.getElementById('confirmOk').textContent = 'Confirm';
+  document.getElementById('confirmOk').disabled = false;
+  document.getElementById('confirmOk').style.cssText = '';
+}
+
+// ── Dataset modal ─────────────────────────────────────
+let selectedMode = 'replace';
+
+function selectMode(el) {
+  document.querySelectorAll('.mode-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedMode = el.dataset.mode;
+}
+
+function openDatasetModal(runId, stats) {
+  datasetImportRunId = runId;
+  document.getElementById('datasetModalBody').innerHTML =
+    `Ingestion complete: <strong>${stats.valid_rows || 0} customers</strong> · <strong>${stats.processed_rows || 0} rows processed</strong>.<br>How should Aegis import this dataset?`;
+  document.getElementById('datasetModal').classList.add('open');
+}
+
+function closeDatasetModal() {
+  document.getElementById('datasetModal').classList.remove('open');
+}
+
+async function applyDatasetMode() {
+  if (!datasetImportRunId) return;
+  const btn = document.getElementById('applyDatasetBtn');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const res = await fetch(API + '/datasets/activate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({run_id: datasetImportRunId, mode: selectedMode})
+    });
+    const data = await res.json();
+    closeDatasetModal();
+    await loadCustomers();
+    selectedIds.clear();
+    updateBulkBar();
+  } catch(e) {
+    alert('Failed to apply dataset: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Apply';
+    datasetImportRunId = null;
+  }
+}
+
+// ── Ingestion ─────────────────────────────────────────
+async function doUpload() {
+  const fileInput = document.getElementById('csvFile');
+  if (!fileInput.files.length) { alert('Please select a CSV file first.'); return; }
+  const btn = document.getElementById('uploadBtn');
+  btn.disabled = true; btn.textContent = '…';
+  progressWrap.classList.add('visible');
+  progStatus.textContent = 'Uploading…';
+  progPct.textContent = '0%';
+  progFill.style.width = '0%';
+  progStats.textContent = '';
+
+  try {
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    const res = await fetch(API + '/aegis/ingest/csv', { method: 'POST', body: fd });
+    const d = await res.json();
+    if (d.run_id) { ingestionRunId = d.run_id; pollIngestion(); }
+    else { progStatus.textContent = 'Accepted'; btn.disabled = false; btn.textContent = 'Ingest'; }
+  } catch(e) {
+    progStatus.textContent = 'Upload failed';
+    btn.disabled = false; btn.textContent = 'Ingest';
+  }
+}
+
+async function pollIngestion() {
+  if (!ingestionRunId) return;
+  try {
+    const res = await fetch(API + '/aegis/ingest/status/' + ingestionRunId);
+    const d = await res.json();
+    progStatus.textContent = d.status;
+    const pct = d.progress_percentage || 0;
+    progPct.textContent = pct.toFixed(1) + '%';
+    progFill.style.width = pct + '%';
+    const v = d.valid_rows || 0, inv = d.invalid_rows || 0, proc = d.processed_rows || 0, tot = d.total_rows || 0;
+    progStats.textContent = `Valid: ${v} | Invalid: ${inv} | ${proc}/${tot}`;
+
+    if (d.status === 'COMPLETED') {
+      const btn = document.getElementById('uploadBtn');
+      btn.disabled = false; btn.textContent = 'Ingest';
+      const runId = ingestionRunId;
+      ingestionRunId = null;
+      // Show dataset import modal instead of auto-refreshing
+      openDatasetModal(runId, d);
+    } else if ((d.status || '').startsWith('FAILED')) {
+      const btn = document.getElementById('uploadBtn');
+      btn.disabled = false; btn.textContent = 'Ingest';
+      ingestionRunId = null;
+    } else {
+      setTimeout(pollIngestion, 1500);
+    }
+  } catch(e) { setTimeout(pollIngestion, 2000); }
+}
+</script>
+</body>
+</html>
