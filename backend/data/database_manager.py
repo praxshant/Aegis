@@ -134,6 +134,7 @@ class DatabaseManager:
                         customer_id TEXT,
                         action_type TEXT,
                         requested_discount_pct REAL,
+                        amount_inr REAL,
                         status TEXT,
                         policy_rule_id TEXT,
                         razorpay_order_id TEXT,
@@ -175,7 +176,23 @@ class DatabaseManager:
                         FOREIGN KEY (run_id) REFERENCES ingestion_runs (run_id)
                     )
                 """)
-                
+
+                # Auth users (WS1 trust layer). Only the users table is ported from
+                # CICOP — api_keys/user_sessions/audit_logs are YAGNI for Aegis.
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id TEXT PRIMARY KEY,
+                        username TEXT UNIQUE NOT NULL,
+                        email TEXT,
+                        password_hash TEXT NOT NULL,
+                        role TEXT NOT NULL DEFAULT 'viewer',
+                        is_active BOOLEAN DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_login TIMESTAMP
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+
                 # Add opted_out to customers if missing
                 try:
                     cursor.execute("ALTER TABLE customers ADD COLUMN opted_out BOOLEAN DEFAULT 0")
@@ -196,6 +213,12 @@ class DatabaseManager:
                     except sqlite3.OperationalError:
                         pass
                 
+                # Backfill amount_inr on action_execution for pre-1D DBs (budget cap needs it)
+                try:
+                    cursor.execute("ALTER TABLE action_execution ADD COLUMN amount_inr REAL")
+                except sqlite3.OperationalError:
+                    pass
+
                 # Indexes
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_transactions_customer_id ON transactions(customer_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_action_id ON audit_ledger(action_id)")
@@ -271,6 +294,7 @@ class DatabaseManager:
                 customer_id TEXT,
                 action_type TEXT,
                 requested_discount_pct REAL,
+                amount_inr REAL,
                 status TEXT,
                 policy_rule_id TEXT,
                 razorpay_order_id TEXT,
@@ -310,7 +334,22 @@ class DatabaseManager:
                 FOREIGN KEY (run_id) REFERENCES ingestion_runs (run_id)
             )
         """)
-        
+
+        # Auth users (WS1 trust layer) — mirror of Block A for :memory: DBs.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'viewer',
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+
         # Add opted_out to customers if missing
         try:
             cursor.execute("ALTER TABLE customers ADD COLUMN opted_out BOOLEAN DEFAULT 0")
@@ -330,7 +369,13 @@ class DatabaseManager:
                 cursor.execute(f"ALTER TABLE customers ADD COLUMN {col_name} {col_type}")
             except sqlite3.OperationalError:
                 pass
-            
+
+        # Backfill amount_inr on action_execution for pre-1D DBs (budget cap needs it)
+        try:
+            cursor.execute("ALTER TABLE action_execution ADD COLUMN amount_inr REAL")
+        except sqlite3.OperationalError:
+            pass
+
         conn.commit()
     
     def insert_dataframe(self, df: pd.DataFrame, table_name: str, if_exists: str = "replace"):
