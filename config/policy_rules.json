@@ -64,6 +64,10 @@
     "limits": {
         "MAX_DISCOUNT_PCT": 25,
         "MAX_PAYMENT_AMOUNT_INR": 2000,
-        "REQUIRED_CONFIDENCE": "Medium"
+        "REQUIRED_CONFIDENCE": "Medium",
+        "MAX_ACTIONS_PER_CUSTOMER_WINDOW": 3,
+        "ACTION_WINDOW_DAYS": 30,
+        "MAX_SPEND_PER_CUSTOMER_WINDOW_INR": 5000,
+        "COOLDOWN_HOURS": 24
     }
 }

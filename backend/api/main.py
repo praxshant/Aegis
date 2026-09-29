@@ -3,7 +3,7 @@ import sys
 import logging
 import json
 from typing import Dict, Any, List
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -28,6 +28,7 @@ from backend.reconciliation.reconciler import Reconciler
 from backend.agent.tools import AgentTools
 from backend.agent.agent import AegisAgent, AegisAgentError
 from backend.ingestion.ingestion_service import IngestionService
+from backend.auth.auth_manager import auth_manager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("AegisAPI")
@@ -81,9 +82,28 @@ class DatasetImportRequest(BaseModel):
     run_id: str
     mode: str  # "replace" | "merge" | "new"
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+@app.post("/auth/login")
+def login(req: LoginRequest):
+    user = auth_manager.authenticate_user(req.username, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {
+        "access_token": auth_manager.create_access_token({"sub": user["user_id"]}),
+        "refresh_token": auth_manager.create_refresh_token({"sub": user["user_id"]}),
+        "token_type": "bearer",
+    }
+
+@app.get("/auth/me")
+def whoami(current_user: dict = Depends(auth_manager.get_current_user)):
+    return current_user
 
 @app.get("/customers")
 def get_customers(limit: int = 200, status: str = "active"):
@@ -108,7 +128,7 @@ def get_customers(limit: int = 200, status: str = "active"):
     return df.to_dict('records')
 
 @app.post("/customers/archive")
-def archive_customers(req: BulkCustomerRequest):
+def archive_customers(req: BulkCustomerRequest, current_user: dict = Depends(auth_manager.get_current_user)):
     """Soft-archive customers — preserves all data, audit records, and transactions."""
     if not req.customer_ids:
         raise HTTPException(status_code=400, detail="No customer IDs provided.")
@@ -118,13 +138,13 @@ def archive_customers(req: BulkCustomerRequest):
         tuple(req.customer_ids)
     )
     _audit.record_event(
-        "bulk", "system", "CUSTOMERS_ARCHIVED", "CommandCenter", "SUCCESS",
+        "bulk", "system", "CUSTOMERS_ARCHIVED", current_user["username"], "SUCCESS",
         {"count": len(req.customer_ids), "customer_ids": req.customer_ids}
     )
     return {"archived": len(req.customer_ids), "customer_ids": req.customer_ids}
 
 @app.post("/customers/delete")
-def delete_customers(req: BulkCustomerRequest):
+def delete_customers(req: BulkCustomerRequest, current_user: dict = Depends(auth_manager.get_current_user)):
     """Soft-delete customers — marks as deleted but audit ledger and transactions are IMMUTABLE."""
     if not req.customer_ids:
         raise HTTPException(status_code=400, detail="No customer IDs provided.")
@@ -134,13 +154,13 @@ def delete_customers(req: BulkCustomerRequest):
         tuple(req.customer_ids)
     )
     _audit.record_event(
-        "bulk", "system", "CUSTOMERS_DELETED", "CommandCenter", "SUCCESS",
+        "bulk", "system", "CUSTOMERS_DELETED", current_user["username"], "SUCCESS",
         {"count": len(req.customer_ids), "customer_ids": req.customer_ids}
     )
     return {"deleted": len(req.customer_ids), "customer_ids": req.customer_ids}
 
 @app.post("/customers/restore")
-def restore_customers(req: BulkCustomerRequest):
+def restore_customers(req: BulkCustomerRequest, current_user: dict = Depends(auth_manager.get_current_user)):
     """Restore archived/deleted customers back to active."""
     if not req.customer_ids:
         raise HTTPException(status_code=400, detail="No customer IDs provided.")
@@ -152,7 +172,7 @@ def restore_customers(req: BulkCustomerRequest):
     return {"restored": len(req.customer_ids)}
 
 @app.post("/datasets/activate")
-def activate_dataset(req: DatasetImportRequest):
+def activate_dataset(req: DatasetImportRequest, current_user: dict = Depends(auth_manager.get_current_user)):
     """
     Apply dataset import mode after ingestion completes.
     mode='replace': Archive all existing active customers, then activate new run's customers.
@@ -182,7 +202,7 @@ def activate_dataset(req: DatasetImportRequest):
             (run_id,)
         )
         _audit.record_event(
-            run_id, "system", "DATASET_REPLACED", "CommandCenter", "SUCCESS",
+            run_id, "system", "DATASET_REPLACED", current_user["username"], "SUCCESS",
             {"run_id": run_id, "archived_count": archived_count, "mode": mode}
         )
 
@@ -198,7 +218,7 @@ def activate_dataset(req: DatasetImportRequest):
     new_count = int(new_count_df.iloc[0,0])
 
     _audit.record_event(
-        run_id, "system", "DATASET_IMPORTED", "CommandCenter", "SUCCESS",
+        run_id, "system", "DATASET_IMPORTED", current_user["username"], "SUCCESS",
         {"run_id": run_id, "mode": mode, "new_customers": new_count, "archived_customers": archived_count}
     )
 
@@ -233,7 +253,7 @@ def get_customer_intelligence(customer_id: str):
     return intelligence.model_dump()
 
 @app.post("/aegis/reactivate")
-def run_reactivation_flow(req: ReactivationRequest):
+def run_reactivation_flow(req: ReactivationRequest, current_user: dict = Depends(auth_manager.get_current_user)):
     """
     End-to-End Reactivation Flow:
     1. Agent Proposes
@@ -242,13 +262,23 @@ def run_reactivation_flow(req: ReactivationRequest):
     4. Audit & Reconcile
     """
     customer_id = req.customer_id
-    
-    _audit.record_event("n/a", customer_id, "AGENT_START", "System", "IN_PROGRESS", {"prompt": req.prompt})
+
+    # actor = the authenticated human who initiated this spend (1B: "who authorized this").
+    # Downstream events keep their subsystem actors (Agent/PolicyGate/RazorpayAdapter).
+    _audit.record_event("n/a", customer_id, "AGENT_START", current_user["username"], "IN_PROGRESS",
+                        {"prompt": req.prompt, "initiated_by": current_user["username"]})
     
     # 1. Compute Intelligence FIRST (used both as agent context and policy ground truth)
     df = _db.get_customer_data(customer_id)
     if df.empty:
         raise HTTPException(status_code=404, detail="Customer not found")
+
+    # Consent gate: never contact an opted-out customer (checked before any LLM/spend work)
+    opted_out = df.iloc[0].get("opted_out")
+    if pd.notna(opted_out) and int(opted_out) == 1:
+        _audit.record_event("n/a", customer_id, "OPT_OUT_BLOCKED", "PolicyGate", "DENIED", {"reason": "CUSTOMER_OPTED_OUT"})
+        return {"status": "DENIED", "reason": "CUSTOMER_OPTED_OUT", "proposal": None, "action_id": "n/a"}
+
     tx_df = _db.query_to_dataframe("SELECT * FROM transactions WHERE customer_id = ?", (customer_id,))
     segment = df.iloc[0].get("segment_name") if "segment_name" in df.columns else None
     intelligence = _ie.get_intelligence(customer_id, tx_df, segment=segment)
@@ -271,10 +301,32 @@ def run_reactivation_flow(req: ReactivationRequest):
         
     action_id = f"act_{os.urandom(4).hex()}"
     _audit.record_event(action_id, customer_id, "PROPOSAL_GENERATED", "Agent", "SUCCESS", proposal.model_dump())
-    
-    # 3. Policy Gate (uses intelligence already computed above — no re-fetch)
-    auth_result = _policy.authorize_action(proposal.model_dump(), intelligence.model_dump())
-    
+
+    # Campaign selection is SERVER-SIDE and deterministic (1C): the ML-grounded policy_rule_id
+    # picks the campaign — NOT the LLM's proposal.intent — so the LLM cannot steer the payable amount.
+    intel = intelligence.model_dump()
+    rule_id = intel.get("policy_rule_id")
+    campaign_key = _campaigns.get("rule_to_campaign", {}).get(rule_id)
+    campaign = _campaigns.get("campaigns", {}).get(campaign_key) if campaign_key else None
+
+    if campaign is None:
+        # No paid campaign maps to this rule (e.g. DEFAULT_01 / STANDARD_ENGAGEMENT) → no spend.
+        _audit.record_event(action_id, customer_id, "POLICY_REJECTED", "PolicyGate", "DENIED",
+                            {"reason": f"NO_CAMPAIGN_FOR_RULE ({rule_id})"})
+        return {"status": "DENIED", "reason": f"NO_CAMPAIGN_FOR_RULE ({rule_id})",
+                "proposal": proposal.model_dump(), "action_id": action_id}
+
+    base_amount_inr = campaign["base_amount_inr"]
+    currency = campaign.get("currency", "INR")
+    discount_pct = proposal.requested_discount_pct
+    final_amount_inr = base_amount_inr * (1 - (discount_pct / 100.0))
+    amount_paise = round(final_amount_inr * 100)  # round, not int(): int() truncates sub-paise → undercharge
+
+    # 3. Policy Gate — per-campaign caps + eligibility (1C) and velocity/budget/cooldown (1D)
+    velocity = _recon.get_customer_velocity(customer_id, _policy.limits.get("ACTION_WINDOW_DAYS", 30))
+    auth_result = _policy.authorize_action(proposal.model_dump(), intel,
+                                           amount_inr=final_amount_inr, campaign=campaign, velocity=velocity)
+
     if not auth_result["approved"]:
         _audit.record_event(action_id, customer_id, "POLICY_REJECTED", "PolicyGate", "DENIED", {"reason": auth_result["reason"]})
         return {
@@ -283,27 +335,18 @@ def run_reactivation_flow(req: ReactivationRequest):
             "proposal": proposal.model_dump(),
             "action_id": action_id
         }
-        
+
     _audit.record_event(action_id, customer_id, "POLICY_APPROVED", "PolicyGate", "APPROVED", {"reason": auth_result["reason"]})
-    
-    # 4. Campaign Mapping & Amount Calculation
-    campaigns = _campaigns.get("campaigns", {})
-    # Match intent or default
-    matched_campaign = campaigns.get(proposal.intent, campaigns.get(_campaigns.get("default_campaign", "WINBACK_STANDARD"), {}))
-    base_amount_inr = matched_campaign.get("base_amount_inr", 1000)
-    currency = matched_campaign.get("currency", "INR")
-    
-    discount_pct = proposal.requested_discount_pct
-    final_amount_inr = base_amount_inr * (1 - (discount_pct / 100.0))
-    amount_paise = int(final_amount_inr * 100)
-    
-    # 5. Execution Request
+
+    # 4. Execution Request — amount_inr recorded so the 1D budget SUM is real; rule_id is the
+    # server-grounded ML rule (matches the campaign that set the amount), not the LLM's.
     _recon.record_execution_request(
-        action_id, 
-        customer_id, 
-        proposal.action_type, 
-        proposal.requested_discount_pct, 
-        proposal.policy_rule_id
+        action_id,
+        customer_id,
+        proposal.action_type,
+        proposal.requested_discount_pct,
+        rule_id,
+        amount_inr=final_amount_inr,
     )
     
     _audit.record_event(action_id, customer_id, "EXECUTION_START", "ExecutionService", "IN_PROGRESS", {"amount_paise": amount_paise, "currency": currency})
@@ -348,14 +391,15 @@ def get_customer_audit(customer_id: str):
     return []
 
 @app.post("/aegis/reconcile")
-def run_reconciliation():
+def run_reconciliation(current_user: dict = Depends(auth_manager.get_current_user)):
     results = _recon.reconcile_pending_actions()
     for res in results:
         _audit.record_event(res['action_id'], "system", "RECONCILIATION_RUN", "Reconciler", "SUCCESS", res)
     return {"reconciled": results}
 
 @app.post("/aegis/ingest/csv")
-async def ingest_csv(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def ingest_csv(background_tasks: BackgroundTasks, file: UploadFile = File(...),
+                     current_user: dict = Depends(auth_manager.get_current_user)):
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="INVALID_FILE: Only CSV files are supported.")
         

@@ -73,9 +73,18 @@ class PolicyGate:
             
         return "Low"
 
-    def authorize_action(self, proposal: Dict[str, Any], intelligence: Dict[str, Any]) -> Dict[str, Any]:
+    def authorize_action(self, proposal: Dict[str, Any], intelligence: Dict[str, Any],
+                         amount_inr: Optional[float] = None,
+                         campaign: Optional[Dict[str, Any]] = None,
+                         velocity: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Validates an LLM's action proposal.
+        Validates an LLM's action proposal against deterministic financial rules.
+        amount_inr: final payable amount (post-discount); enforced vs MAX_PAYMENT_AMOUNT_INR.
+        campaign:   the SERVER-selected campaign dict (1C). When provided, the per-campaign
+                    discount cap and segment/band eligibility are enforced — the LLM never
+                    selects the campaign, so it cannot steer the payable amount.
+        velocity:   {"action_count", "spend_inr", "hours_since_last"} for this customer over
+                    the trailing window (1D); enforced vs the velocity/budget/cooldown limits.
         Returns {"approved": bool, "reason": str}
         """
         # Ensure we have a valid action type
@@ -84,18 +93,63 @@ class PolicyGate:
             return {"approved": False, "reason": "MISSING_ACTION_TYPE"}
 
         discount_pct = proposal.get("requested_discount_pct", 0)
-        
+
+        # A negative "discount" inflates the charge ABOVE base (final = base*(1 - d/100)).
+        # The LLM proposal is untrusted, so reject it deterministically here — otherwise a
+        # prompt-injected -100% would double the payable amount up to the ₹ ceiling (defeats 1C).
+        if discount_pct < 0:
+            return {"approved": False, "reason": "INVALID_DISCOUNT (negative)"}
+
         # Check MAX_DISCOUNT
         max_discount = self.limits.get("MAX_DISCOUNT_PCT", 0)
         if discount_pct > max_discount:
             return {"approved": False, "reason": f"DISCOUNT_LIMIT_EXCEEDED (Max {max_discount}%)"}
-            
+
+        # 1C: per-campaign discount cap + eligibility (defense-in-depth on the server-chosen campaign)
+        if campaign is not None:
+            camp_max = campaign.get("max_discount_pct")
+            if camp_max is not None and discount_pct > camp_max:
+                return {"approved": False, "reason": f"CAMPAIGN_DISCOUNT_LIMIT_EXCEEDED (Max {camp_max}%)"}
+            seg = intelligence.get("segment")
+            elig_segs = campaign.get("eligible_segments")
+            if elig_segs is not None and seg not in elig_segs:
+                return {"approved": False, "reason": f"SEGMENT_NOT_ELIGIBLE ({seg})"}
+            band = intelligence.get("propensity_band")
+            elig_bands = campaign.get("eligible_propensity_bands")
+            if elig_bands is not None and band not in elig_bands:
+                return {"approved": False, "reason": f"PROPENSITY_BAND_NOT_ELIGIBLE ({band})"}
+
+        # Check MAX_PAYMENT_AMOUNT (the campaign controls base amount; cap the charge)
+        max_amount = self.limits.get("MAX_PAYMENT_AMOUNT_INR")
+        if amount_inr is not None and max_amount is not None and amount_inr > max_amount:
+            return {"approved": False, "reason": f"AMOUNT_LIMIT_EXCEEDED (₹{amount_inr:.0f} > Max ₹{max_amount})"}
+
         # Check confidence threshold if required by limits
         req_confidence = self.limits.get("REQUIRED_CONFIDENCE", "Low")
         conf_levels = {"Low": 1, "Medium": 2, "High": 3}
         intel_conf = intelligence.get("recommendation_confidence", "Low")
-        
+
         if conf_levels.get(intel_conf, 0) < conf_levels.get(req_confidence, 0):
             return {"approved": False, "reason": f"INSUFFICIENT_CONFIDENCE (Required {req_confidence})"}
-            
+
+        # 1D: velocity / budget / cooldown — enforced vs prior actions for this customer
+        if velocity is not None:
+            window = self.limits.get("ACTION_WINDOW_DAYS", 30)
+            max_actions = self.limits.get("MAX_ACTIONS_PER_CUSTOMER_WINDOW")
+            if max_actions is not None and velocity.get("action_count", 0) >= max_actions:
+                return {"approved": False,
+                        "reason": f"VELOCITY_LIMIT_EXCEEDED ({velocity.get('action_count')} in {window}d, max {max_actions})"}
+
+            max_spend = self.limits.get("MAX_SPEND_PER_CUSTOMER_WINDOW_INR")
+            if max_spend is not None and amount_inr is not None:
+                projected = velocity.get("spend_inr", 0) + amount_inr
+                if projected > max_spend:
+                    return {"approved": False,
+                            "reason": f"BUDGET_LIMIT_EXCEEDED (₹{projected:.0f} > Max ₹{max_spend} in {window}d)"}
+
+            cooldown_h = self.limits.get("COOLDOWN_HOURS")
+            hsl = velocity.get("hours_since_last")
+            if cooldown_h is not None and hsl is not None and hsl < cooldown_h:
+                return {"approved": False, "reason": f"COOLDOWN_ACTIVE ({hsl:.1f}h since last < {cooldown_h}h)"}
+
         return {"approved": True, "reason": "APPROVED"}

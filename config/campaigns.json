@@ -31,6 +31,12 @@
             "notes": "Lower offer value; these customers are still active."
         }
     },
+    "rule_to_campaign": {
+        "WINBACK_01": "WINBACK_STANDARD",
+        "WINBACK_02": "WINBACK_STANDARD",
+        "NURTURE_01": "NURTURE_STANDARD",
+        "RETAIN_01": "NURTURE_STANDARD"
+    },
     "default_campaign": "WINBACK_STANDARD",
     "currency": "INR",
     "amount_unit": "paise_x100"
