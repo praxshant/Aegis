@@ -1,8 +1,34 @@
 # Aegis: Governed AI Agent for Autonomous Commerce 🛡️
 
+[![CI](https://github.com/praxshant/Aegis/actions/workflows/ci.yml/badge.svg)](https://github.com/praxshant/Aegis/actions/workflows/ci.yml)
+
 Aegis is a production-ready, fully-governed AI Commerce Agent. It solves one of the hardest problems in modern enterprise AI: **How do you enable LLM-driven autonomous commercial decision-making without risking runaway costs, policy violations, hallucinations, or prompt injection exploits?**
 
 Aegis accomplishes this by enforcing a strict structural separation between **Reasoning** (the LLM Agent), **Quantitative Intelligence** (Predictive ML Models), **Authorization** (Deterministic Policy Gate), and **Execution** (Razorpay Payment Link API).
+
+---
+
+## ⚡ Quickstart
+
+```bash
+# 1. Install
+pip install -r requirements.txt
+
+# 2. Configure — copy the template, then add Gemini + Razorpay (test) keys and a JWT secret
+cp .env.example .env
+
+# 3. Create the first operator login (password via env, kept out of shell history)
+export AEGIS_SEED_PASSWORD="choose-a-strong-password"   # PowerShell: $env:AEGIS_SEED_PASSWORD="..."
+python backend/scripts/seed_admin.py --username admin --role admin
+
+# 4. Run the API and the dashboard (two terminals)
+uvicorn backend.api.main:app --host 127.0.0.1 --port 8000 --reload
+streamlit run frontend/app.py
+```
+
+Open the dashboard, sign in, then **ingest a dataset** from the sidebar (**📥 Data Ingestion → upload a customer/transaction CSV → Ingest & activate**). The ML pipeline scores every customer on load — pick one and click **Run Aegis Agent** to watch the governed loop run end to end.
+
+> Prefer seeded sample profiles over ingesting your own CSV? Run `python tests/fixtures/synthetic_dev_data.py` before starting the API.
 
 ---
 
@@ -217,7 +243,8 @@ REFRESH_TOKEN_EXPIRE_DAYS=7
 pip install -r requirements.txt
 ```
 
-### 3. Initialize Dev Database & Synthetic Data
+### 3. (Optional) Seed Synthetic Sample Data
+The primary way to load data is live ingestion from the dashboard (**📥 Data Ingestion**, see the Operator Walkthrough below). To start with a few ready-made profiles instead, seed them here:
 ```bash
 python tests/fixtures/synthetic_dev_data.py
 ```

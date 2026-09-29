@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import json
+import time
 
 st.set_page_config(
     page_title="Aegis | Governed AI Commerce Agent",
@@ -133,6 +134,13 @@ def get_customers():
         pass
     return []
 
+@st.cache_data(ttl=10)
+def api_alive():
+    try:
+        return requests.get(f"{API_BASE}/health", timeout=3).status_code == 200
+    except Exception:
+        return False
+
 customers = get_customers()
 
 def auth_headers():
@@ -151,7 +159,7 @@ with col_title:
 
 st.divider()
 
-if not customers:
+if not api_alive():
     st.error("⚠️ API is unreachable. Start with: `uvicorn backend.api.main:app --port 8000`")
     st.stop()
 
@@ -178,6 +186,61 @@ else:
                     st.error("Invalid credentials")
             except Exception as e:
                 st.error(f"Login failed: {e}")
+
+# ── Data Ingestion ──────────────────────────────────────────────────────────
+st.sidebar.markdown("---")
+with st.sidebar.expander("📥 Data Ingestion", expanded=not customers):
+    if not st.session_state.get("access_token"):
+        st.caption("🔒 Sign in to ingest a dataset.")
+    else:
+        up = st.file_uploader("Customer/transaction CSV", type="csv", key="ingest_csv")
+        mode = st.selectbox("Activation mode", ["replace", "merge", "new"], index=0,
+                            help="replace: archive current data and swap in this run; merge/new: keep existing")
+        if st.button("Ingest & activate", use_container_width=True, disabled=up is None):
+            try:
+                files = {"file": (up.name, up.getvalue(), "text/csv")}
+                r = requests.post(f"{API_BASE}/aegis/ingest/csv", files=files,
+                                  headers=auth_headers(), timeout=60)
+                if r.status_code == 401:
+                    st.session_state.pop("access_token", None)
+                    st.warning("Session expired — sign in again.")
+                    st.stop()
+                if r.status_code != 200:
+                    st.error(f"Ingest failed: {r.text}")
+                    st.stop()
+                run_id = r.json()["run_id"]
+                prog = st.progress(0, text="Ingesting…")
+                status = {}
+                for _ in range(120):
+                    status = requests.get(f"{API_BASE}/aegis/ingest/status/{run_id}", timeout=10).json()
+                    pct = int(status.get("progress_percentage") or 0)
+                    prog.progress(min(pct, 100),
+                                  text=f"{status.get('status', '')} — {status.get('processed_rows', 0)} rows")
+                    state = str(status.get("status", ""))
+                    if state == "COMPLETED":
+                        break
+                    if state.startswith("FAILED"):
+                        st.error(f"Ingestion failed: {status}")
+                        st.stop()
+                    time.sleep(1.0)
+                else:
+                    st.error("Ingestion timed out.")
+                    st.stop()
+                act = requests.post(f"{API_BASE}/datasets/activate",
+                                    json={"run_id": run_id, "mode": mode},
+                                    headers=auth_headers(), timeout=60)
+                if act.status_code != 200:
+                    st.error(f"Activation failed: {act.text}")
+                    st.stop()
+                get_customers.clear()
+                st.success(f"Ingested {status.get('valid_rows', '?')} valid rows.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Ingestion error: {e}")
+
+if not customers:
+    st.info("No customers loaded yet. Sign in and ingest a dataset from the sidebar to begin.")
+    st.stop()
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("## 🎛️ Agent Controls")
