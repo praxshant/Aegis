@@ -1,0 +1,55 @@
+{
+  "model_name": "instacart_next_basket",
+  "version": "1.1.0",
+  "algorithm": "LightGBM",
+  "feature_count": 21,
+  "feature_schema": [
+    "user_total_orders",
+    "user_avg_basket_size",
+    "user_avg_days_between_orders",
+    "user_reorder_rate",
+    "product_total_orders",
+    "product_reorder_rate",
+    "product_unique_users",
+    "product_popularity",
+    "user_product_order_count",
+    "user_product_reorder_count",
+    "user_product_last_order_number",
+    "user_product_reorder_rate",
+    "user_product_orders_since_last_purchase",
+    "user_product_avg_gap",
+    "aisle_id",
+    "department_id",
+    "user_aisle_order_count",
+    "user_department_order_count",
+    "user_department_share",
+    "user_order_number",
+    "user_recent_cart_size"
+  ],
+  "target": "next_basket_product_probability",
+  "dataset": "Instacart Market Basket Analysis",
+  "trained_at": "2026-08-30T10:01:21.762525+00:00",
+  "leakage_corrected": true,
+  "leakage_features_removed": [
+    "target_order_dow",
+    "target_order_hour",
+    "target_days_since_prior_order"
+  ],
+  "primary_metric": "ndcg_at_10",
+  "top_k": 10,
+  "candidate_strategy": "purchase history + top-50 globally popular products",
+  "internal_validation_metrics": {
+    "precision_at_10": 0.2940349175557711,
+    "recall_at_10": 0.5527246536999081,
+    "ndcg_at_10": 0.5339696974190213,
+    "map_at_10": 0.36753678617062124
+  },
+  "final_holdout_metrics": {
+    "precision_at_10": 0.29890981923281695,
+    "recall_at_10": 0.5343207510515935,
+    "ndcg_at_10": 0.5244170203961477,
+    "map_at_10": 0.35409692582574553
+  },
+  "supersedes": "C:\\Users\\ACER\\OneDrive\\Desktop\\Projects\\Customer-Intelligence-Platform\\backend\\models\\artifacts\\next_basket\\next_basket_model.pkl",
+  "artifact_sha256": "238a44c50b10d825c2417ae8e278465d9366afa1651bc826cd1b2d81d0e4ea9c"
+}

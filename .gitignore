@@ -17,7 +17,11 @@ htmlcov/
 
 # Database
 *.db
+*.sqlite
 *.sqlite3
+*.db-wal
+*.db-shm
+*.db-journal
 
 # Data and Models
 *.parquet
@@ -37,9 +41,20 @@ notebooks-CICOP/*.csv
 .DS_Store
 Thumbs.db
 
-# Output and Artifacts
-artifacts/
+# Output and Artifacts — regenerable data & uploads stay local; trained models ship
+artifacts/*
+!artifacts/models/
+!artifacts/models/**/*.pkl
+!artifacts/models/**/*.json
 
 # Frontend
 .streamlit/
 node_modules/
+
+# Packaging / caches
+build/
+dist/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+desktop.ini

@@ -1,0 +1,63 @@
+{
+  "model_type": "HistGradientBoostingClassifier",
+  "target": "TARGET_next_purchase_30d",
+  "artifact_file": "model_HistGradientBoosting_Tuned.pkl",
+  "artifact_sha256": "23aa3acebaabc1e84818f8ea727e4693036ecaba03741f1b45b1a3de4d07f7bf",
+  "original_source_path": "C:/Users/ACER/OneDrive/Desktop/Projects/Customer-Intelligence-Platform/backend/training/experiments/next_purchase_30d/model_HistGradientBoosting_Tuned.pkl",
+  "source_notebook": "03_model_training.ipynb",
+  "audit_notebook": "04_model_audit.ipynb",
+  "audit_status": "PASS — Selected as best model by maximum PR-AUC on validation set",
+  "final_test_metrics": {
+    "ROC_AUC": 0.8191,
+    "PR_AUC": 0.5627,
+    "Precision": 0.7217,
+    "Recall": 0.2857,
+    "F1": 0.4093,
+    "Lift_at_10pct": 3.648
+  },
+  "feature_count": 19,
+  "feature_names": [
+    "FEATURE_recency_days",
+    "FEATURE_customer_lifetime_days",
+    "FEATURE_purchase_order_count",
+    "FEATURE_purchase_line_count",
+    "FEATURE_return_line_count",
+    "FEATURE_cancellation_line_count",
+    "FEATURE_total_gross_purchase_spend",
+    "FEATURE_total_return_amount",
+    "FEATURE_total_net_spend",
+    "FEATURE_average_order_value",
+    "FEATURE_purchase_frequency",
+    "FEATURE_return_rate",
+    "FEATURE_unique_products_purchased",
+    "FEATURE_net_spend_30d",
+    "FEATURE_net_spend_90d",
+    "FEATURE_purchase_order_count_30d",
+    "FEATURE_purchase_order_count_90d",
+    "FEATURE_is_active_30d",
+    "FEATURE_is_active_90d"
+  ],
+  "propensity_bands_frozen": {
+    "1_LOW": "<0.16",
+    "2_MODERATE": ">=0.16 and <0.27",
+    "3_HIGH": ">=0.27 and <0.40",
+    "4_VERY_HIGH": ">=0.40"
+  },
+  "training_data": {
+    "dataset": "Online Retail II (UCI ML Repository)",
+    "observation_count": 71647,
+    "unique_customers": 5247,
+    "train_rows": 41749,
+    "val_rows": 14468,
+    "test_rows": 15430,
+    "train_date_range": ["2010-03-31", "2011-02-28"],
+    "val_date_range": ["2011-03-31", "2011-05-31"],
+    "test_date_range": ["2011-06-30", "2011-08-31"]
+  },
+  "notes": [
+    "Model predicts P(next purchase within 30 days) — NOT P(response to discount).",
+    "Model does NOT establish causal uplift or guarantee incremental revenue.",
+    "Missing-value handling: HistGradientBoostingClassifier natively supports NaN inputs.",
+    "Sklearn version warning expected when loading on sklearn < 1.7.2."
+  ]
+}
