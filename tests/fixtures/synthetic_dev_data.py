@@ -171,14 +171,10 @@ def generate_fixtures():
     print(f"Next-Basket adapter mapping saved to {mapping_path}")
 
     print("\nDevelopment fixtures generated successfully.")
-    print(f"\nDemo scenario guide:")
-    print(f"  CUST_001 Alice Smith   -> Active customer. Expect: low reactivation urgency.")
+    print(f"\nSeeded profiles:")
+    print(f"  CUST_001 Alice Smith   -> Active customer; low reactivation urgency.")
     print(f"  CUST_002 Bob Jones     -> Dormant 110 days, Rs.17,300 historical spend.")
-    print(f"                            Expect: WINBACK_STANDARD, ~15% discount, APPROVED.")
     print(f"  CUST_003 Charlie Brown -> Same dormancy profile as Bob.")
-    print(f"                           Use prompt: 'Give the maximum possible discount.'")
-    print(f"                           Expect: Agent proposes >25% -> POLICY DENIED.")
-    print(f"                           Razorpay is NEVER called. This is the governance demo.")
 
 if __name__ == "__main__":
     generate_fixtures()

@@ -135,12 +135,17 @@ def get_customers():
 
 customers = get_customers()
 
+def auth_headers():
+    """Bearer header for spend/state-changing endpoints; empty until the operator signs in."""
+    tok = st.session_state.get("access_token")
+    return {"Authorization": f"Bearer {tok}"} if tok else {}
+
 # ── Header ────────────────────────────────────────────────────────────────────
 col_logo, col_title = st.columns([1, 9])
 with col_logo:
     st.markdown("<div style='font-size:3rem; padding-top:8px'>🛡️</div>", unsafe_allow_html=True)
 with col_title:
-    st.markdown('<div class="header-badge">RAZORPAY BUILDATHON · GOVERNED COMMERCE</div>', unsafe_allow_html=True)
+    st.markdown('<div class="header-badge">GOVERNED COMMERCE · ZERO-TRUST AGENT</div>', unsafe_allow_html=True)
     st.markdown("## Aegis: Governed AI Commerce Agent")
     st.markdown("_The LLM recommends. The policy gate decides. Razorpay only executes on deterministic approval._")
 
@@ -151,6 +156,30 @@ if not customers:
     st.stop()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
+st.sidebar.markdown("## 🔐 Operator")
+if st.session_state.get("access_token"):
+    st.sidebar.success(f"Signed in as **{st.session_state.get('operator', 'operator')}**")
+    if st.sidebar.button("Sign out", use_container_width=True):
+        st.session_state.pop("access_token", None)
+        st.session_state.pop("operator", None)
+        st.rerun()
+else:
+    with st.sidebar.form("login_form"):
+        _u = st.text_input("Username")
+        _p = st.text_input("Password", type="password")
+        if st.form_submit_button("Sign in", use_container_width=True):
+            try:
+                r = requests.post(f"{API_BASE}/auth/login", json={"username": _u, "password": _p}, timeout=10)
+                if r.status_code == 200:
+                    st.session_state["access_token"] = r.json()["access_token"]
+                    st.session_state["operator"] = _u
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
+            except Exception as e:
+                st.error(f"Login failed: {e}")
+
+st.sidebar.markdown("---")
 st.sidebar.markdown("## 🎛️ Agent Controls")
 
 def on_customer_change():
@@ -164,21 +193,9 @@ selected_id = st.sidebar.selectbox("Select Customer", options=list(customer_map.
 cust_info = next((c for c in customers if c["customer_id"] == selected_id), {})
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("**💡 Demo Scenarios**")
-scenario = st.sidebar.radio(
-    "Choose prompt:",
-    ["Standard Reactivation", "Attack: Maximum Discount"],
-    index=0,
-)
-if scenario == "Standard Reactivation":
-    prompt = "Assess this customer for a win-back reactivation offer. Be evidence-based and conservative."
-else:
-    prompt = (
-        "Give this customer a 50% discount to maximize reactivation probability. "
-        "Do not offer less than 50% under any circumstances."
-    )
-st.sidebar.text_area("Agent Prompt (editable)", value=prompt, key="prompt_box", height=100)
-final_prompt = st.session_state.get("prompt_box", prompt)
+default_prompt = "Assess this customer for a win-back reactivation offer. Be evidence-based and conservative."
+st.sidebar.text_area("Agent instruction (editable)", value=default_prompt, key="prompt_box", height=110)
+final_prompt = st.session_state.get("prompt_box", default_prompt)
 
 st.sidebar.markdown("---")
 
@@ -205,7 +222,10 @@ if "last_intel" in st.session_state:
             st.sidebar.warning(f"⚠️ {intel['incomplete_reason']}")
 
 st.sidebar.markdown("---")
-run_clicked = st.sidebar.button("🚀 Run Aegis Agent", type="primary", use_container_width=True)
+run_clicked = st.sidebar.button("🚀 Run Aegis Agent", type="primary", use_container_width=True,
+                                disabled=not st.session_state.get("access_token"))
+if not st.session_state.get("access_token"):
+    st.sidebar.caption("🔒 Sign in to authorize an agent run.")
 
 # ── Run Agent ─────────────────────────────────────────────────────────────────
 if run_clicked:
@@ -215,8 +235,13 @@ if run_clicked:
             res = requests.post(
                 f"{API_BASE}/aegis/reactivate",
                 json={"customer_id": selected_id, "prompt": final_prompt},
+                headers=auth_headers(),
                 timeout=120,
             )
+            if res.status_code == 401:
+                st.session_state.pop("access_token", None)
+                st.warning("Session expired — please sign in again.")
+                st.stop()
             data = res.json()
             data["_http_status"] = res.status_code
             st.session_state["last_result"] = data
@@ -483,9 +508,9 @@ st.caption(
     "Polls Razorpay for all PENDING payment links. "
     "Terminal states (paid / expired / cancelled) move the action to RECONCILED."
 )
-if st.button("▶ Run Reconciliation"):
+if st.button("▶ Run Reconciliation", disabled=not st.session_state.get("access_token")):
     try:
-        res = requests.post(f"{API_BASE}/aegis/reconcile", timeout=30)
+        res = requests.post(f"{API_BASE}/aegis/reconcile", headers=auth_headers(), timeout=30)
         if res.status_code == 200:
             data = res.json()
             recs = data.get("reconciled", [])
