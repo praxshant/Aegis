@@ -98,14 +98,38 @@ Treats the LLM `ActionProposal` as an **untrusted request**. Enforces hardcoded 
 
 ### 4.1. Hard Bounds (Execution Blocking)
 *   **`MAX_DISCOUNT_PCT`**: 25.0% (Proposals $> 25\%$ are immediately denied).
+*   **Non-negative discount**: a negative `requested_discount_pct` would inflate the charge above base (`final = base * (1 - d/100)`); the gate rejects it (`INVALID_DISCOUNT`).
 *   **`MAX_PAYMENT_AMOUNT_INR`**: 2000 INR (Transaction ceiling).
 *   **`REQUIRED_CONFIDENCE`**: Minimum "Medium".
 
-### 4.2. Rule Priority Matrix
+### 4.2. Server-Side Campaign Determinism (LLM cannot steer the amount)
+The LLM proposes a *discount only*; it does **not** select the campaign or the base amount. The API maps the **ML-grounded** `intelligence.policy_rule_id` to a campaign via `config/campaigns.json` → `rule_to_campaign`, and that campaign fixes `base_amount_inr`. Consequences:
+*   A `policy_rule_id` with **no** mapped paid campaign (e.g. `DEFAULT_01` / `STANDARD_ENGAGEMENT`) results in **no spend** — the flow returns `DENIED` with reason `NO_CAMPAIGN_FOR_RULE`.
+*   Because the LLM's `intent` field never picks the campaign, a prompt-injected `intent` cannot inflate the payable amount.
+*   **Defense-in-depth in the gate**: even given the server-chosen campaign, the gate re-checks the per-campaign `max_discount_pct` (`CAMPAIGN_DISCOUNT_LIMIT_EXCEEDED`) and the campaign's `eligible_segments` / `eligible_propensity_bands` (`SEGMENT_NOT_ELIGIBLE`, `PROPENSITY_BAND_NOT_ELIGIBLE`).
+
+### 4.3. Per-Customer Velocity / Budget / Cooldown
+Prior-action statistics are read from `action_execution` by `Reconciler.get_customer_velocity(...)` and passed into the gate (the gate stays a pure function of its inputs). Only successfully `EXECUTED` actions are counted — a `FAILED` link created no live charge, and an in-flight `EXECUTION_REQUESTED` row must not burn the customer's budget/cooldown:
+*   **`MAX_ACTIONS_PER_CUSTOMER_WINDOW`** (3) over **`ACTION_WINDOW_DAYS`** (30): denies `VELOCITY_LIMIT_EXCEEDED`.
+*   **`MAX_SPEND_PER_CUSTOMER_WINDOW_INR`** (₹5000): denies `BUDGET_LIMIT_EXCEEDED` when `prior_spend + this_amount` would exceed the cap. (Requires `amount_inr` to be persisted on each `action_execution` row — added in this workstream.)
+*   **`COOLDOWN_HOURS`** (24): denies `COOLDOWN_ACTIVE` if the last action to this customer is more recent than the cooldown.
+
+### 4.4. Rule Priority Matrix
 Evaluates the customer's state against their historical baseline to authorize intents:
 1.  **`WINBACK_01` (Priority 100)**: `Segment = Dormant Multi-Buyers` + `recency_elevated (>= 2.0x)` $\to$ `CREATE_WINBACK_OFFER`
 2.  **`NURTURE_01` (Priority 80)**: `Segment = Recent Repeat Buyers` + `spend_declining (<= 0.70x)` $\to$ `TARGETED_NURTURE`
 3.  **`RETAIN_01` (Priority 70)**: `Segment = Active High-Value` + `frequency_declining (<= 0.50x)` $\to$ `RETENTION_OFFER`
+
+---
+
+## 4A. Authenticated Trust Layer (Operator Identity)
+
+State-changing and spend-initiating endpoints require a JWT bearer token, so every autonomous action is attributable to a human operator.
+
+*   **Login**: `POST /auth/login` verifies bcrypt-hashed credentials in the `users` table and issues an access + refresh token (`AuthManager`, `backend/auth/`).
+*   **Guarding**: FastAPI `Depends(auth_manager.get_current_user)` protects `/aegis/reactivate`, `/aegis/reconcile`, `/aegis/ingest/csv`, `/customers/{archive,delete,restore}`, and `/datasets/activate`.
+*   **Attribution**: the authenticated `username` is written as the `actor` on `AGENT_START` and as `initiated_by` in the event metadata — the audit trail answers *"who authorized this spend?"*.
+*   **Secret handling**: the signing key comes from `JWT_SECRET_KEY`; if unset, an **ephemeral per-process** secret is generated. No signing key is hardcoded or committed. (Ephemeral keys invalidate tokens across restarts — set `JWT_SECRET_KEY` in any multi-process or persistent deployment.)
 
 ---
 
