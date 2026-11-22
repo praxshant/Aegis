@@ -4,16 +4,18 @@ from datetime import datetime, timedelta
 import os
 import random
 
-def generate_dataset(seed: int = 42):
-    # Fixed seed: the demo dataset is reproducible run to run
+def generate_dataset(seed: int = 42, prefix: str = "DEMO_", n_customers: int = 100, out_path: str = None) -> str:
+    # Fixed seed: the demo dataset is reproducible run to run. The DEMO_ prefix keeps these
+    # customers apart from the seeded CUST_001-003 fixture profiles (CUST_ used to collide).
     random.seed(seed)
     np.random.seed(seed)
     # Load catalog (written by tests/fixtures/synthetic_dev_data.py)
-    catalog = pd.read_parquet(os.path.join(os.path.dirname(__file__), '../artifacts/data/instacart_product_subset.parquet'))
+    catalog = pd.read_parquet(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "artifacts", "data",
+                                           "instacart_product_subset.parquet"))
     
     # We want 100 realistic customers
     # Let's generate a list of 100 customer IDs
-    customers = [f"CUST_{str(i).zfill(3)}" for i in range(1, 101)]
+    customers = [f"{prefix}{str(i).zfill(3)}" for i in range(1, n_customers + 1)]
     
     records = []
     
@@ -96,10 +98,12 @@ def generate_dataset(seed: int = 42):
     # shuffle
     df = df.sample(frac=1).reset_index(drop=True)
     
-    out_path = os.path.join(os.path.dirname(__file__), "../artifacts/data/final_demo_dataset.csv")
+    out_path = out_path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "artifacts", "data",
+                                        "final_demo_dataset.csv")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     df.to_csv(out_path, index=False)
     print(f"Generated dataset with {len(df)} rows at {out_path}")
+    return out_path
 
 if __name__ == "__main__":
     generate_dataset()
