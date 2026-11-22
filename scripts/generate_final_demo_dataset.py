@@ -19,7 +19,6 @@ def generate_dataset(seed: int = 42, prefix: str = "DEMO_", n_customers: int = 1
     
     records = []
     
-    start_date = datetime.now() - timedelta(days=365)
     
     for cust in customers:
         # Determine behavior profile

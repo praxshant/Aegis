@@ -178,10 +178,10 @@ def generate_fixtures():
     print(f"Next-Basket adapter mapping saved to {mapping_path}")
 
     print("\nDevelopment fixtures generated successfully.")
-    print(f"\nSeeded profiles:")
-    print(f"  CUST_001 Alice Smith   -> Active customer; low reactivation urgency.")
-    print(f"  CUST_002 Bob Jones     -> Dormant 110 days, Rs.17,300 historical spend.")
-    print(f"  CUST_003 Charlie Brown -> Same dormancy profile as Bob.")
+    print("\nSeeded profiles:")
+    print("  CUST_001 Alice Smith   -> Active customer; low reactivation urgency.")
+    print("  CUST_002 Bob Jones     -> Dormant 110 days, Rs.17,300 historical spend.")
+    print("  CUST_003 Charlie Brown -> Same dormancy profile as Bob.")
 
 if __name__ == "__main__":
     generate_fixtures()
