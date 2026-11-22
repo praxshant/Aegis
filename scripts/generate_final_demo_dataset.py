@@ -4,8 +4,11 @@ from datetime import datetime, timedelta
 import os
 import random
 
-def generate_dataset():
-    # Load catalog
+def generate_dataset(seed: int = 42):
+    # Fixed seed: the demo dataset is reproducible run to run
+    random.seed(seed)
+    np.random.seed(seed)
+    # Load catalog (written by tests/fixtures/synthetic_dev_data.py)
     catalog = pd.read_parquet(os.path.join(os.path.dirname(__file__), '../artifacts/data/instacart_product_subset.parquet'))
     
     # We want 100 realistic customers

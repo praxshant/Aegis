@@ -3,7 +3,7 @@ schemas.py — Intelligence layer canonical schemas.
 """
 
 from typing import List, Dict, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
 
 
@@ -39,6 +39,9 @@ class NextBasketIntelligence(BaseModel):
 
 
 class CustomerIntelligence(BaseModel):
+    # class-based `Config` is deprecated in Pydantic v2 and removed in v3
+    model_config = ConfigDict(use_enum_values=True, protected_namespaces=())
+
     customer_id: str
     observation_date: str                         # ISO date string, e.g. "2026-08-25"
     status: IntelligenceStatus = IntelligenceStatus.COMPLETE
@@ -72,7 +75,3 @@ class CustomerIntelligence(BaseModel):
 
     # Next-Basket Intelligence
     next_basket: Optional[NextBasketIntelligence] = None
-
-    class Config:
-        use_enum_values = True
-        protected_namespaces = ()

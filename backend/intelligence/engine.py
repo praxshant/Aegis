@@ -49,6 +49,53 @@ from backend.policy.gate import PolicyGate
 
 logger = logging.getLogger("IntelligenceEngine")
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_CATALOG_PATH = _PROJECT_ROOT / "artifacts" / "data" / "instacart_product_subset.parquet"
+_catalog_cache: Dict[str, Any] = {"mtime": None, "df": None}
+
+
+def _load_product_catalog() -> Optional[pd.DataFrame]:
+    """Load the next-basket product catalog once and reuse it until the file changes."""
+    try:
+        mtime = _CATALOG_PATH.stat().st_mtime
+    except OSError:
+        return None
+    if _catalog_cache["mtime"] != mtime:
+        try:
+            _catalog_cache["df"] = pd.read_parquet(_CATALOG_PATH)
+            _catalog_cache["mtime"] = mtime
+        except Exception as e:
+            logger.warning(f"Failed to load product catalog: {e}")
+            return None
+    return _catalog_cache["df"]
+
+
+def derive_segment(row: pd.Series) -> str:
+    """Deterministic behavioural segment from the feature row.
+
+    The CICOP Phase-2 clustering model that produced segment labels offline is not part
+    of this runtime, so a customer without a stored segment (e.g. every CSV-ingested
+    customer) used to fall through as 'Unknown' — which matches no policy rule, so the
+    agent could never approve an offer for uploaded data. This reproduces the four
+    cluster definitions from 06_segment_propensity_matrix with transparent rules:
+    active = purchased in the last 90 days; multi-buyer = 2+ orders."""
+    orders = float(row.get("FEATURE_purchase_order_count", 0) or 0)
+    active_90d = float(row.get("FEATURE_is_active_90d", 0) or 0) >= 1
+    if active_90d:
+        if orders >= 5:
+            return "Active High-Value"
+        if orders >= 2:
+            return "Recent Repeat Buyers"
+        return "New Customers"
+    return "Dormant Multi-Buyers" if orders >= 2 else "One-Time Dormant"
+
+
+def _clean_segment(segment: Any) -> Optional[str]:
+    # pandas hands back NaN (truthy!) for a missing LEFT JOIN value
+    if isinstance(segment, str) and segment.strip() and segment.strip() != "Unknown":
+        return segment.strip()
+    return None
+
 
 def _format_next_basket_intent(
     customer_id: str, 
@@ -163,7 +210,7 @@ class IntelligenceEngine:
             observation_date:  Point-in-time cutoff. Defaults to today.
                                Only transactions <= observation_date are used.
             segment:           Pre-computed Aegis segment label (optional).
-                               If None, defaults to 'Unknown'.
+                               If missing, derived from features via derive_segment().
 
         Returns:
             CustomerIntelligence with status=COMPLETE or status=INCOMPLETE.
@@ -225,7 +272,7 @@ class IntelligenceEngine:
         signals = self._generate_signals(row)
 
         # ── Policy pre-evaluation ──────────────────────────────────────────
-        seg = segment or "Unknown"
+        seg = _clean_segment(segment) or derive_segment(row)
         policy_result = self.policy_gate.evaluate_pre_action(seg, propensity_band, signals)
         history_days = float(row.get("FEATURE_customer_lifetime_days", 1.0))
         confidence = self.policy_gate.get_confidence(
@@ -278,15 +325,9 @@ class IntelligenceEngine:
                 pass
 
         if self._next_basket_model is not None:
-            # 1. Load product catalog if available
-            product_catalog = None
-            catalog_path = Path("artifacts/data/instacart_product_subset.parquet")
-            if catalog_path.exists():
-                try:
-                    product_catalog = pd.read_parquet(catalog_path)
-                except Exception as e:
-                    logger.warning(f"Failed to load product catalog: {e}")
-            
+            # 1. Load product catalog if available (anchored on the project root, cached)
+            product_catalog = _load_product_catalog()
+
             # 2. Build Next-Basket Features
             nb_status, nb_frame, nb_reason = assemble_features_for_next_basket(
                 customer_id=customer_id,

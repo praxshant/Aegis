@@ -82,8 +82,9 @@ class NextPurchasePropensityModel:
     @classmethod
     def get_instance(cls, model_path: Optional[Path] = None) -> "NextPurchasePropensityModel":
         if cls._instance is None:
-            cls._instance = cls(model_path)
-            cls._instance.load()
+            instance = cls(model_path)
+            instance.load()  # cache only a successfully loaded model, never a half-built one
+            cls._instance = instance
         return cls._instance
 
     @classmethod

@@ -125,8 +125,8 @@ def _map_transactions_to_instacart_schema(
             .str.replace(r'\.0$', '', regex=True)
         )
         
-        logger.warning(
-            f"DEBUG MAPPING: lookup keys sample={list(lookup.keys())[:5]}, "
+        logger.debug(
+            f"Catalog mapping: lookup keys sample={list(lookup.keys())[:5]}, "
             f"TX sample={prior_detail['product_id_str'].head(3).tolist()}"
         )
 
@@ -144,7 +144,7 @@ def _map_transactions_to_instacart_schema(
 
         unmapped = prior_detail['product_id'].isna().sum()
         if unmapped > 0:
-            logger.warning(f"Failed to map {unmapped} products to Instacart IDs for customer {customer_id}")
+            logger.info(f"{unmapped} products have no Instacart mapping for customer {customer_id}")
             # Drop unmapped products for the purpose of next-basket prediction
             prior_detail = prior_detail.dropna(subset=['product_id'])
             
