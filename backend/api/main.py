@@ -197,6 +197,21 @@ def get_customers(limit: int = Query(200, ge=1, le=1000),
     return df.to_dict('records')
 
 
+def _intel_summary(intel: dict, campaign_key=None, campaign=None) -> dict:
+    """What the gate decided on, for the UI: the ML grounding plus the server-chosen campaign."""
+    return {
+        "segment": intel.get("segment"),
+        "propensity_band": intel.get("propensity_band"),
+        "purchase_probability_30d": intel.get("purchase_probability_30d"),
+        "policy_rule_id": intel.get("policy_rule_id"),
+        "recommendation": intel.get("recommendation"),
+        "recommendation_confidence": intel.get("recommendation_confidence"),
+        "campaign": campaign_key,
+        "campaign_max_discount_pct": (campaign or {}).get("max_discount_pct"),
+        "base_amount_inr": (campaign or {}).get("base_amount_inr"),
+    }
+
+
 def _set_status(req: BulkCustomerRequest, new_status: str, event_type: str, actor: str):
     if not req.customer_ids:
         raise HTTPException(status_code=400, detail="No customer IDs provided.")
@@ -381,7 +396,8 @@ def run_reactivation_flow(req: ReactivationRequest, current_user: dict = Depends
         _audit.record_event(action_id, customer_id, "POLICY_REJECTED", "PolicyGate", "DENIED",
                             {"reason": f"NO_CAMPAIGN_FOR_RULE ({rule_id})"})
         return {"status": "DENIED", "reason": f"NO_CAMPAIGN_FOR_RULE ({rule_id})",
-                "proposal": proposal.model_dump(), "action_id": action_id}
+                "proposal": proposal.model_dump(), "action_id": action_id,
+                "intelligence": _intel_summary(intel)}
 
     base_amount_inr = campaign["base_amount_inr"]
     currency = campaign.get("currency", "INR")
@@ -400,7 +416,8 @@ def run_reactivation_flow(req: ReactivationRequest, current_user: dict = Depends
                 "status": "DENIED",
                 "reason": auth_result["reason"],
                 "proposal": proposal.model_dump(),
-                "action_id": action_id
+                "action_id": action_id,
+                "intelligence": _intel_summary(intel, campaign_key, campaign),
             }
 
         _audit.record_event(action_id, customer_id, "POLICY_APPROVED", "PolicyGate", "APPROVED", {"reason": auth_result["reason"]})
@@ -438,7 +455,8 @@ def run_reactivation_flow(req: ReactivationRequest, current_user: dict = Depends
                 "status": "EXECUTED",
                 "proposal": proposal.model_dump(),
                 "razorpay": rzp_res,
-                "action_id": action_id
+                "action_id": action_id,
+                "intelligence": _intel_summary(intel, campaign_key, campaign),
             }
 
         except Exception as e:
@@ -447,7 +465,9 @@ def run_reactivation_flow(req: ReactivationRequest, current_user: dict = Depends
             return {
                 "status": "FAILED",
                 "error": str(e),
-                "action_id": action_id
+                "proposal": proposal.model_dump(),
+                "action_id": action_id,
+                "intelligence": _intel_summary(intel, campaign_key, campaign),
             }
 
 
