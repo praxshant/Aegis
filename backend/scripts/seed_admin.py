@@ -23,14 +23,18 @@ def main():
     ap.add_argument("--username", required=True)
     ap.add_argument("--password", default=os.getenv("AEGIS_SEED_PASSWORD"))
     ap.add_argument("--email", default=None)
-    ap.add_argument("--role", default="admin")
+    ap.add_argument("--role", default="admin", choices=["admin", "operator", "viewer"],
+                    help="admin/operator can run spend actions; viewer is read-only")
     args = ap.parse_args()
     if not args.password:
         ap.error("password required via --password or AEGIS_SEED_PASSWORD env")
 
     db = DatabaseManager()
     am = AuthManager(db_manager=db)
-    pw_hash = am.hash_password(args.password)
+    try:
+        pw_hash = am.hash_password(args.password)
+    except ValueError as e:
+        ap.error(str(e))
 
     existing = db.query_to_dataframe("SELECT user_id FROM users WHERE username = ?", (args.username,))
     if not existing.empty:

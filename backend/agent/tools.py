@@ -1,5 +1,6 @@
 import json
 import logging
+from pathlib import Path
 from typing import Dict, Any
 
 from backend.data.database_manager import DatabaseManager
@@ -78,7 +79,8 @@ class AgentTools:
         """
         logger.info("Tool called: get_campaign_eligibility()")
         try:
-            with open("config/campaigns.json", "r", encoding="utf-8") as f:
+            cfg = Path(__file__).resolve().parents[2] / "config" / "campaigns.json"
+            with open(cfg, "r", encoding="utf-8") as f:
                 config = json.load(f)
             return json.dumps(config.get("campaigns", {}))
         except Exception as e:

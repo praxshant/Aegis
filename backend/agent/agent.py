@@ -1,6 +1,8 @@
 import os
 import json
+import time
 import logging
+from pathlib import Path
 from typing import Dict, Any, Optional
 
 try:
@@ -14,15 +16,22 @@ from backend.agent.tools import AgentTools
 
 logger = logging.getLogger("AegisAgent")
 
-# Ordered preference list — most preferred first.
-# The agent will try each model in sequence and pick the first one available.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_CAMPAIGNS_PATH = _PROJECT_ROOT / "config" / "campaigns.json"
+
+# Ordered preference list — most preferred first. Older 1.5/2.0 names were retired by
+# Google, so discovery also falls back to any current text-capable Flash model.
 _MODEL_PREFERENCE = [
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-lite-latest",
     "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-2.5-flash-preview-04-17",
-    "gemini-3.6-flash",
-    "gemini-1.5-pro",
 ]
+_DEFAULT_MODEL = _MODEL_PREFERENCE[0]
+# Model families that can't do plain structured text generation
+_NON_TEXT_MARKERS = ("image", "tts", "audio", "live", "embedding", "vision", "thinking-exp", "robotics", "computer-use")
 
 
 class AegisAgentError(Exception):
@@ -32,35 +41,46 @@ class AegisAgentError(Exception):
 
 def _discover_model(client) -> str:
     """
-    Discover the best available Gemini model for this API key.
-    First checks GEMINI_MODEL env var for an explicit override.
-    Then iterates the preference list and returns the first model that is accessible.
-    Falls back to the last entry in the preference list.
+    Pick the Gemini model to use for this API key.
+    GEMINI_MODEL env var wins; otherwise the first available model from the preference
+    list; otherwise the first stable text-capable Flash model the key can see.
     """
-    # Allow explicit override via environment
     override = os.getenv("GEMINI_MODEL", "").strip()
     if override:
         logger.info(f"Using model override from GEMINI_MODEL env var: {override}")
         return override
 
     try:
-        available = {m.name.replace("models/", "") for m in client.models.list()}
-        logger.info(f"Available Gemini models ({len(available)} total): {sorted(available)}")
+        available = set()
+        for m in client.models.list():
+            actions = getattr(m, "supported_actions", None) or ["generateContent"]
+            if "generateContent" in actions:
+                available.add(m.name.replace("models/", ""))
+        logger.info(f"Available Gemini models ({len(available)} total)")
         for preferred in _MODEL_PREFERENCE:
             if preferred in available:
                 logger.info(f"Selected model: {preferred}")
                 return preferred
-        # If none matched the preference list, pick any flash model
-        flash_models = sorted([m for m in available if "flash" in m.lower()])
-        if flash_models:
-            logger.info(f"No preferred model found; using first flash model: {flash_models[0]}")
-            return flash_models[0]
+        flash = sorted(
+            (m for m in available
+             if "flash" in m.lower() and not any(x in m.lower() for x in _NON_TEXT_MARKERS)),
+            key=lambda m: ("preview" in m or "exp" in m, m),  # stable before preview
+        )
+        if flash:
+            logger.info(f"No preferred model found; using flash model: {flash[0]}")
+            return flash[0]
     except Exception as e:
-        logger.warning(f"Model discovery failed ({e}); falling back to preference list default.")
+        logger.warning(f"Model discovery failed ({e}); falling back to {_DEFAULT_MODEL}.")
 
-    fallback = _MODEL_PREFERENCE[0]
-    logger.warning(f"Using fallback model: {fallback}")
-    return fallback
+    return _DEFAULT_MODEL
+
+
+def _load_campaigns() -> Dict[str, Any]:
+    try:
+        return json.loads(_CAMPAIGNS_PATH.read_text(encoding="utf-8")).get("campaigns", {})
+    except Exception as e:
+        logger.warning(f"Could not load campaigns for the agent prompt: {e}")
+        return {}
 
 
 class AegisAgent:
@@ -103,23 +123,19 @@ class AegisAgent:
         - Falls back to Ollama on 503 / quota errors.
         """
         if not self.client:
-            return self._fallback_ollama(customer_id, prompt, intelligence_context)
+            return self._fallback_ollama(customer_id, prompt, intelligence_context,
+                                         reason="GEMINI_API_KEY is not set")
 
-        # ── Load campaign data once (static file, negligible cost) ────────
+        # ── Campaign data (path anchored on the project root, not the CWD) ─
         campaigns_block = ""
-        try:
-            import pathlib, json as _json
-            cfg_path = pathlib.Path("config/campaigns.json")
-            if cfg_path.exists():
-                cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
-                campaigns_block = (
-                    "\n\n## Available Campaigns (pre-loaded)\n"
-                    f"```json\n{_json.dumps(cfg.get('campaigns', {}), indent=2)}\n```\n"
-                    "Use this data to determine which campaign applies. "
-                    "Do NOT call any tool to fetch campaigns.\n"
-                )
-        except Exception:
-            pass
+        campaigns = _load_campaigns()
+        if campaigns:
+            campaigns_block = (
+                "\n\n## Available Campaigns (pre-loaded)\n"
+                f"```json\n{json.dumps(campaigns, indent=2)}\n```\n"
+                "Use this data to determine which campaign applies. "
+                "Do NOT call any tool to fetch campaigns.\n"
+            )
 
         system_instruction = (
             "You are Aegis, a governed AI commerce agent. "
@@ -165,7 +181,6 @@ class AegisAgent:
         logger.info(f"Starting agent reasoning for customer {customer_id} using model {self.model_name}")
 
         # ── Single API call with structured output — no tool calls ────────
-        import time
         last_err = None
         for attempt in range(2):
             try:
@@ -180,8 +195,12 @@ class AegisAgent:
                     )
                 )
                 raw_json = response.text
+                if not raw_json:
+                    # e.g. a safety block or an empty candidate — not a transport error
+                    raise AegisAgentError("LLM returned an empty response (possibly blocked by safety filters).")
                 try:
                     proposal_dict = json.loads(raw_json)
+                    proposal_dict["customer_id"] = customer_id  # the audit trail must name the real customer
                     proposal = ActionProposal(**proposal_dict)
                 except (json.JSONDecodeError, ValueError) as e:
                     raise AegisAgentError(f"LLM returned invalid structured output: {e}. Raw: {raw_json[:300]}")
@@ -200,11 +219,13 @@ class AegisAgent:
                         time.sleep(3)
                         continue
                     # Second failure → fallback
-                    logger.warning(f"Gemini 503 persists. Falling back to Ollama.")
-                    return self._fallback_ollama(customer_id, prompt, intelligence_context)
+                    logger.warning("Gemini 503 persists. Falling back to Ollama.")
+                    return self._fallback_ollama(customer_id, prompt, intelligence_context,
+                                                 reason=f"Gemini unavailable: {e}")
                 if "429" in err_str or "quota" in err_str or "exhausted" in err_str:
-                    logger.warning(f"Gemini quota exhausted. Falling back to Ollama.")
-                    return self._fallback_ollama(customer_id, prompt, intelligence_context)
+                    logger.warning("Gemini quota exhausted. Falling back to Ollama.")
+                    return self._fallback_ollama(customer_id, prompt, intelligence_context,
+                                                 reason=f"Gemini quota exhausted: {e}")
                 break
 
         logger.error(f"Agent execution failed: {last_err}")
@@ -250,7 +271,7 @@ class AegisAgent:
         
         try:
             resp = requests.post(
-                "http://localhost:11434/api/generate",
+                f"{ollama_url}/api/generate",
                 json={
                     "model": model,
                     "prompt": f"{system_instruction}\n\n{user_prompt}",
@@ -265,12 +286,15 @@ class AegisAgent:
             
             try:
                 proposal_dict = json.loads(raw_json)
-                proposal_dict.setdefault("customer_id", customer_id)
+                proposal_dict["customer_id"] = customer_id  # never trust the model to echo the right id
                 proposal = ActionProposal(**proposal_dict)
                 logger.info(f"Ollama proposed: intent={proposal.intent}, discount={proposal.requested_discount_pct}%")
                 return proposal
             except (json.JSONDecodeError, ValueError) as e:
                 raise AegisAgentError(f"Ollama returned invalid structured output: {e}. Raw: {raw_json[:300]}")
                 
+        except AegisAgentError:
+            raise
         except Exception as e:
-            raise AegisAgentError(f"Ollama fallback failed: {e}")
+            primary = f"{reason}; " if reason else ""
+            raise AegisAgentError(f"{primary}Ollama fallback at {ollama_url} failed: {e}")
