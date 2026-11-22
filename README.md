@@ -69,7 +69,7 @@ Aegis relies on a unidirectional, strictly governed dataflow:
                          ▼
 ┌────────────────────────────────────────────────────────┐
 │                   1. AEGIS AGENT                       │
-│ ├── Gemini 3.1 Pro (Primary) / Ollama (Local Fallback) │
+│ ├── Gemini Flash (Primary) / Ollama (Local Fallback)   │
 │ └── Outputs JSON Action Proposal (Pydantic Schema)     │
 └────────────────────────┬───────────────────────────────┘
                          │
@@ -107,10 +107,10 @@ Aegis relies on a unidirectional, strictly governed dataflow:
 
 1. **Ingestion & Data Layer (`backend/ingestion`, `backend/data`)**: Manages SQLite storage for customer profiles, raw transaction lines, and segment metadata. Handles background streaming CSV uploads with error reporting and dataset activation modes.
 2. **Intelligence Engine (`backend/intelligence`)**: Extracts non-leaking feature vectors (`transaction_timestamp <= observation_date`) and executes real-time inference using local scikit-learn and LightGBM model artifacts.
-3. **Reasoning Agent (`backend/agent`)**: Prompt-engineered LLM wrapper using `google-genai` (Gemini 3.1 Pro) with local Ollama (`llama3.2:3b`) fallback. Enforces Pydantic `ActionProposal` schema outputs.
+3. **Reasoning Agent (`backend/agent`)**: Prompt-engineered LLM wrapper using `google-genai` (a Gemini Flash model auto-selected from what the key can access, or pinned via `GEMINI_MODEL`) with Ollama fallback (`OLLAMA_URL`, `OLLAMA_MODEL`, default `llama3.2:3b`). Enforces Pydantic `ActionProposal` schema outputs.
 4. **Policy Gate (`backend/policy`)**: Deterministic Python decision engine evaluating proposals against hard limits defined in `config/policy_rules.json`.
 5. **Execution Adapter (`backend/razorpay`)**: Interacts with the Razorpay Payment Link API to generate unique payment links with idempotency keys (`reference_id = action_id`).
-6. **Audit & Reconciliation (`backend/audit`, `backend/reconciliation`)**: Records all lifecycle events into `audit_events` and syncs payment statuses asynchronously.
+6. **Audit & Reconciliation (`backend/audit`, `backend/reconciliation`)**: Records all lifecycle events into the append-only, SHA-256 hash-chained `audit_ledger` table and syncs payment statuses by polling (`/aegis/reconcile`) or signed Razorpay webhooks (`/webhooks/razorpay`).
 7. **API & Interface (`backend/api`, `frontend/app.py`)**: FastAPI REST interface for programmatic access and Streamlit interactive web interface for human operators.
 
 ---
@@ -184,8 +184,8 @@ Aegis deploys two predictive ML models alongside the generative reasoning agent:
 
 ### 3. Generative Reasoning Agent (LLM)
 
-- **Primary LLM**: `Gemini 3.1 Pro` (via `google-genai` package)
-- **Fallback LLM**: `Ollama` running `llama3.2:3b` locally with strict JSON output format.
+- **Primary LLM**: Gemini via the `google-genai` package. The first available model from `gemini-2.5-flash`, `gemini-flash-latest`, `gemini-3-flash-preview`, … is used (any text-capable Flash model otherwise); set `GEMINI_MODEL` to pin one.
+- **Fallback LLM**: Ollama (`OLLAMA_URL`, default `http://localhost:11434`; `OLLAMA_MODEL`, default `llama3.2:3b`) with strict JSON output format. With neither reachable, the agent returns a clean `503` and the failure is audited.
 - **Function**: Merges prompt intent and ML intelligence context to propose a campaign intervention, reasoning summary, and requested discount percentage.
 
 ---
@@ -193,7 +193,7 @@ Aegis deploys two predictive ML models alongside the generative reasoning agent:
 ## 🔒 Security & Governance Framework
 
 1. **Untrusted LLM Model**: The system treats all LLM outputs as untrusted data proposals.
-2. **Authenticated Trust Layer (JWT)**: Operators log in via `/auth/login` (bcrypt-hashed credentials) and receive a bearer token. Every spend-initiating or state-changing endpoint requires it, and the authenticated username is recorded as the `actor`/`initiated_by` on the audit trail — answering *"who authorized this spend?"*. The JWT signing secret is read from `JWT_SECRET_KEY`; if unset, an ephemeral per-process secret is generated (no signing key is ever hardcoded or committed).
+2. **Authenticated Trust Layer (JWT + roles)**: Operators log in via `/auth/login` (bcrypt-hashed credentials, throttled after 5 failures in 5 minutes) and receive an access + refresh token (`/auth/refresh` issues a new access token). Every spend-initiating or state-changing endpoint requires role `admin` or `operator`; a `viewer` can sign in but cannot spend. The authenticated username is recorded as the `actor`/`initiated_by` on the audit trail — answering *"who authorized this spend?"*. The JWT signing secret is read from `JWT_SECRET_KEY`; if unset, an ephemeral per-process secret is generated (no signing key is ever hardcoded or committed).
 3. **Server-Side Campaign Determinism**: The LLM proposes only a discount; the **server** maps the ML-grounded `policy_rule_id` → campaign (`config/campaigns.json` `rule_to_campaign`) to fix `base_amount_inr`. A rule with no mapped paid campaign yields **no spend** (`NO_CAMPAIGN_FOR_RULE`). The gate additionally enforces the per-campaign discount cap and segment/propensity-band eligibility as defense-in-depth, and rejects a negative discount (which would inflate the charge above base) outright (`INVALID_DISCOUNT`).
 4. **Policy Enforcement Matrix**:
    - `MAX_DISCOUNT_PCT`: Maximum allowable discount (Default: `25%`).
@@ -202,8 +202,10 @@ Aegis deploys two predictive ML models alongside the generative reasoning agent:
    - `MAX_ACTIONS_PER_CUSTOMER_WINDOW` / `ACTION_WINDOW_DAYS`: Velocity cap (Default: `3` actions per `30` days).
    - `MAX_SPEND_PER_CUSTOMER_WINDOW_INR`: Budget cap per customer over the window (Default: `₹5000`).
    - `COOLDOWN_HOURS`: Minimum spacing between actions to one customer (Default: `24h`).
-5. **Auditability**: Every proposal, approval, denial, and API execution is logged in SQLite with timestamped metadata and action trace IDs.
-6. **Idempotency**: Razorpay link requests pass `reference_id = action_id` to prevent double-charging on network retries.
+5. **Auditability**: Every proposal, approval, denial, and API execution is logged in SQLite with timestamped metadata and action trace IDs. Each event stores `prev_hash` and `event_hash = SHA-256(prev_hash + event)`, triggers block `UPDATE`/`DELETE` on the table, and `GET /aegis/ledger/verify` recomputes the chain and names the first tampered event.
+6. **Idempotency & races**: Razorpay link requests pass `reference_id = action_id`; the velocity/budget/cooldown check and the execution are serialised per customer, so two concurrent runs cannot both pass the gate.
+7. **Payments safety**: a `rzp_live_` key is refused unless `RAZORPAY_ENV=live`; without Razorpay keys a mock adapter is used. Webhooks are accepted only with a valid `X-Razorpay-Signature` for `RAZORPAY_WEBHOOK_SECRET`.
+8. **Consent & lifecycle**: opted-out, archived, deleted, or not-yet-activated customers are never offered a payment link.
 
 ---
 
@@ -213,7 +215,7 @@ Aegis deploys two predictive ML models alongside the generative reasoning agent:
 - **Machine Learning**: Scikit-Learn 1.7.2, LightGBM 4.0+, NumPy, Pandas, PyArrow
 - **Generative AI**: `google-genai` (Gemini API), Ollama REST API
 - **Payments**: Razorpay Python SDK (`razorpay`)
-- **Database**: SQLite3 (with WAL mode & indexed relations)
+- **Database**: SQLite3 (WAL mode, indexed relations, schema auto-migrated on startup)
 - **Frontend Dashboard**: Streamlit
 
 ---
@@ -237,6 +239,8 @@ JWT_SECRET_KEY=your_long_random_secret_here
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 REFRESH_TOKEN_EXPIRE_DAYS=7
 ```
+
+Optional: `GEMINI_MODEL` (pin a model), `OLLAMA_URL` / `OLLAMA_MODEL` (fallback LLM), `RAZORPAY_WEBHOOK_SECRET` (enables `/webhooks/razorpay`), `MAX_UPLOAD_MB` (default 50), `DATABASE_URL` (relative paths resolve against the project root). See `.env.example`.
 
 ### 2. Install Dependencies
 ```bash
@@ -269,25 +273,53 @@ streamlit run frontend/app.py
 
 ---
 
+## ☁️ Deploy for Free (Hugging Face Spaces)
+
+The `Dockerfile` runs the API (internal port 8000) and the dashboard (port 7860) in one container. On every boot `deploy/bootstrap.py` creates the operator accounts from secrets and, if the database is empty, seeds the 3 fixture profiles plus a 100-customer demo dataset (free Spaces have no persistent disk, so data resets on restart).
+
+1. Create a free account at [huggingface.co](https://huggingface.co/join) and a **write** token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+2. Get a free Gemini key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) (optional; without it, agent runs return a clean 503).
+3. From the repo root (PowerShell):
+   ```powershell
+   pip install huggingface_hub
+   $env:HF_TOKEN = "hf_..."; $env:AEGIS_ADMIN_PASSWORD = "choose-a-strong-password"; $env:GEMINI_API_KEY = "..."
+   python deploy/deploy_hf_space.py --space <your-hf-username>/aegis
+   ```
+   The script creates a Docker Space (CPU basic, free), stores the variables as Space secrets (generating `JWT_SECRET_KEY`), and uploads the committed code. Optional: `AEGIS_DEMO_PASSWORD` adds a shareable `demo` operator; `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` (test mode) create real Razorpay test links instead of mock ones.
+4. After the build (~5 min) the app is at `https://<your-hf-username>-aegis.hf.space`. Free Spaces sleep after 48 h without visitors and wake on the next visit.
+
+Any other Docker host works the same way: `docker build -t aegis . && docker run -p 7860:7860 -e AEGIS_ADMIN_PASSWORD=... -e GEMINI_API_KEY=... aegis`.
+
+---
+
 ## 🧪 API Endpoints Overview
+
+🔒 = any signed-in user · 🛡️ = role `admin` or `operator`
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| `GET` | `/health` | — | Server health check |
+| `GET` | `/health` | — | Health check, with model / LLM / payment-mode status |
 | `POST` | `/auth/login` | — | Exchange username/password for a JWT access + refresh token |
+| `POST` | `/auth/refresh` | — | Exchange a refresh token for a new access token |
 | `GET` | `/auth/me` | 🔒 | Return the authenticated operator's identity |
-| `GET` | `/customers` | — | Fetch active customer profiles and segment data |
-| `POST` | `/customers/archive` | 🔒 | Soft-archive selected customer profiles |
-| `POST` | `/customers/delete` | 🔒 | Soft-delete customer profiles (preserves audit ledger) |
-| `POST` | `/customers/restore` | 🔒 | Restore archived/deleted customers |
-| `POST` | `/datasets/activate` | 🔒 | Activate imported dataset (`replace`, `merge`, `new`) |
+| `GET` | `/customers` | — | Fetch customer profiles and segment data (`status`, `limit` ≤ 1000) |
+| `POST` | `/customers/archive` | 🛡️ | Soft-archive selected customer profiles |
+| `POST` | `/customers/delete` | 🛡️ | Soft-delete customer profiles (preserves audit ledger) |
+| `POST` | `/customers/restore` | 🛡️ | Restore archived/deleted customers |
+| `POST` | `/datasets/activate` | 🛡️ | Activate a completed ingestion run (`replace`, `merge`, `new`) |
 | `GET` | `/aegis/intelligence/{customer_id}` | — | Diagnostic ML pipeline output (features, propensity, next basket) |
-| `POST` | `/aegis/reactivate` | 🔒 | Execute full Reactivation agent loop (Propose -> Evaluate -> Execute -> Audit) |
+| `POST` | `/aegis/reactivate` | 🛡️ | Execute full Reactivation agent loop (Propose -> Evaluate -> Execute -> Audit) |
 | `GET` | `/aegis/audit/{customer_id}` | — | Retrieve audit history for a customer |
-| `POST` | `/aegis/reconcile` | 🔒 | Trigger manual payment reconciliation loop |
-| `POST` | `/aegis/ingest/csv` | 🔒 | Upload custom customer/transaction CSV dataset |
+| `GET` | `/aegis/ledger/verify` | 🔒 | Recompute the audit ledger's SHA-256 hash chain |
+| `POST` | `/aegis/reconcile` | 🛡️ | Poll Razorpay for every open payment link |
+| `POST` | `/webhooks/razorpay` | signature | Razorpay `payment_link.*` webhook (HMAC-verified) |
+| `POST` | `/aegis/ingest/csv` | 🛡️ | Upload a transaction CSV (background ingestion) |
 | `GET` | `/aegis/ingest/status/{run_id}` | — | Check status of background ingestion run |
-| `GET` | `/aegis/analytics/summary` | — | Analytics summary metrics (customers, propensity distribution, runs) |
+| `GET` | `/aegis/analytics/summary` | — | Analytics summary metrics (customers, segments, propensity, actions, runs) |
+
+### CSV ingestion format
+
+Columns are matched case/space-insensitively, with aliases. Required: a customer id, an invoice/order id, a product id/SKU, a timestamp, and either a line amount (`gross_amount`/`amount`/`total`) or a unit price (`price`/`unit_price`, multiplied by `quantity`). The UCI Online Retail II export works as-is: `C`-prefixed invoices become cancellations and negative quantities become returns, exactly as in training (`notebooks-CICOP/01_data_preparation`). Re-uploading the same file is idempotent. Every ingested customer is scored and assigned a behavioural segment.
 
 ---
 
@@ -313,18 +345,18 @@ Open the Streamlit UI at `http://localhost:8501`:
 ```text
 Aegis/
 ├── backend/
-│   ├── actions/          # Commercial action handlers
 │   ├── agent/            # Aegis LLM agent & tool wrappers
 │   ├── api/              # FastAPI REST endpoints (main.py)
-│   ├── audit/            # SQLite Immutable Audit Ledger
-│   ├── data/             # DatabaseManager & SQL schema queries
+│   ├── audit/            # Append-only, hash-chained audit ledger
+│   ├── auth/             # JWT + bcrypt operator auth, roles, login throttle
+│   ├── data/             # DatabaseManager, schema & migrations
 │   ├── ingestion/        # Streaming CSV ingestion pipeline
 │   ├── intelligence/     # Feature Builder & Model Inference Engine
 │   ├── models/           # Scikit-learn & LightGBM model adapters
 │   ├── policy/           # Deterministic Policy Gate & Rule Engine
 │   ├── razorpay/         # Razorpay Payment Link API Adapter
-│   ├── reconciliation/   # Payment link status reconciler
-│   └── utils/            # Helper utilities
+│   ├── reconciliation/   # Payment link status reconciler (polling + webhooks)
+│   └── scripts/          # seed_admin.py (operator accounts)
 ├── config/
 │   ├── campaigns.json    # Campaign metadata & baseline pricing
 │   └── policy_rules.json # Policy gate limits & rule priorities
@@ -341,6 +373,9 @@ Aegis/
 ├── notebooks-CICOP/     # Experiment notebooks & evaluation reports
 ├── notebooks-Aegis/     # Instacart next basket training notebooks
 ├── tests/                # Pytest suite & synthetic dataset generator
+├── scripts/              # Demo dataset generator, bulk CSV import
+├── deploy/               # Container entrypoint (start.sh) and boot-time seeding (bootstrap.py)
+├── Dockerfile            # One image: API + dashboard (Hugging Face Spaces / Render / any Docker host)
 ├── requirements.txt      # Python dependencies
 └── README.md             # Aegis Project Documentation
 ```

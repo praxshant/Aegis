@@ -127,7 +127,7 @@ Evaluates the customer's state against their historical baseline to authorize in
 State-changing and spend-initiating endpoints require a JWT bearer token, so every autonomous action is attributable to a human operator.
 
 *   **Login**: `POST /auth/login` verifies bcrypt-hashed credentials in the `users` table and issues an access + refresh token (`AuthManager`, `backend/auth/`).
-*   **Guarding**: FastAPI `Depends(auth_manager.get_current_user)` protects `/aegis/reactivate`, `/aegis/reconcile`, `/aegis/ingest/csv`, `/customers/{archive,delete,restore}`, and `/datasets/activate`.
+*   **Guarding**: `Depends(auth_manager.require_roles(("admin", "operator")))` protects `/aegis/reactivate`, `/aegis/reconcile`, `/aegis/ingest/csv`, `/customers/{archive,delete,restore}`, and `/datasets/activate`; a `viewer` gets 403. `POST /auth/refresh` exchanges a refresh token for a new access token; failed logins are throttled.
 *   **Attribution**: the authenticated `username` is written as the `actor` on `AGENT_START` and as `initiated_by` in the event metadata — the audit trail answers *"who authorized this spend?"*.
 *   **Secret handling**: the signing key comes from `JWT_SECRET_KEY`; if unset, an **ephemeral per-process** secret is generated. No signing key is hardcoded or committed. (Ephemeral keys invalidate tokens across restarts — set `JWT_SECRET_KEY` in any multi-process or persistent deployment.)
 
@@ -141,18 +141,20 @@ All actions and state transitions are cryptographically tracked to ensure audita
 *   **Idempotency**: Razorpay link requests pass `reference_id = action_id`, ensuring network retries cannot result in double-charges.
 *   **Table: `audit_ledger`**
     *   Tracks: `event_type` (`PROPOSAL_GENERATED`, `POLICY_APPROVED`, `EXECUTION_SUCCESS`), `actor`, `status`.
-    *   Secured via SHA-256 integrity checks.
-*   **Reconciliation Engine**: Asynchronous polling/webhook syncing with the Razorpay API to update local `action_execution` states (`paid`, `expired`, `cancelled`).
+    *   Append-only (UPDATE/DELETE blocked by triggers) and hash-chained: `event_hash = SHA-256(prev_hash + event)`; `GET /aegis/ledger/verify` recomputes the chain.
+*   **Reconciliation Engine**: polling (`POST /aegis/reconcile`) and signed webhooks (`POST /webhooks/razorpay`) store Razorpay's status in `action_execution.payment_status` (`created`, `paid`, `expired`, `cancelled`); terminal states mark the action `RECONCILED`.
 
 ---
 
 ## 6. API & Service Architecture
 
-Powered by a unified **FastAPI** backend (14 endpoints) serving a frontend Streamlit operator console.
+Powered by a unified **FastAPI** backend serving a Streamlit operator console (full endpoint table in the README).
 
 ### Key Endpoints:
 *   `GET /aegis/intelligence/{customer_id}`: End-to-end diagnostic ML pipeline inference output.
 *   `POST /aegis/reactivate`: Triggers the complete autonomous loop (Intelligence $\to$ LLM Propose $\to$ Gate $\to$ Razorpay $\to$ Audit).
 *   `GET /aegis/audit/{customer_id}`: Fetches chronological immutable audit trail.
 *   `POST /aegis/reconcile`: Triggers the payment status reconciliation loop with Razorpay.
-*   `POST /datasets/activate`: Activates imported CSV datasets (`replace`, `merge`, `new`).
+*   `POST /datasets/activate`: Activates a completed CSV ingestion run (`replace`, `merge`, `new`).
+*   `GET /aegis/ledger/verify`: Recomputes the audit ledger hash chain.
+*   `POST /webhooks/razorpay`: HMAC-verified Razorpay payment-link webhooks.
