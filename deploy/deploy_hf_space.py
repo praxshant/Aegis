@@ -35,7 +35,7 @@ colorTo: indigo
 sdk: docker
 app_port: 7860
 pinned: false
-short_description: Governed AI commerce agent - the LLM proposes, a policy gate decides
+short_description: Governed AI commerce agent - LLM proposes, policy decides
 ---
 
 """
