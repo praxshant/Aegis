@@ -23,13 +23,14 @@ def import_data(customers_csv_path, transactions_csv_path, segments_csv_path=Non
     
     # 1. Load and insert Customers
     print(f"Loading customers from {customers_csv_path}...")
-    customers_df = pd.read_csv(customers_csv_path)
-    # Ensure replace clears out the synthetic data
+    customers_df = pd.read_csv(customers_csv_path, dtype={"customer_id": str})
+    # "replace" clears existing rows but keeps the table schema (keys, status/propensity columns)
     db.insert_dataframe(customers_df, "customers", if_exists="replace")
     
     # 2. Load and insert Transactions
     print(f"Loading transactions from {transactions_csv_path}...")
-    transactions_df = pd.read_csv(transactions_csv_path)
+    transactions_df = pd.read_csv(transactions_csv_path, dtype={"customer_id": str, "transaction_id": str,
+                                                                "invoice": str, "product_id": str})
     if 'transaction_timestamp' in transactions_df.columns:
         transactions_df['transaction_timestamp'] = pd.to_datetime(transactions_df['transaction_timestamp'])
     db.insert_dataframe(transactions_df, "transactions", if_exists="replace")
@@ -37,7 +38,7 @@ def import_data(customers_csv_path, transactions_csv_path, segments_csv_path=Non
     # 3. Load and insert Segments
     if segments_csv_path and os.path.exists(segments_csv_path):
         print(f"Loading segments from {segments_csv_path}...")
-        segments_df = pd.read_csv(segments_csv_path)
+        segments_df = pd.read_csv(segments_csv_path, dtype={"customer_id": str})
         db.insert_dataframe(segments_df, "customer_segments", if_exists="replace")
         
     print("\n✅ Data import complete! Restart your FastAPI server to see changes.")

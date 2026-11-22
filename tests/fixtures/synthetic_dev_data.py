@@ -68,6 +68,13 @@ def generate_fixtures():
             "location": "Bangalore",
         },
     ])
+    # Idempotent re-seed: drop only these demo rows, then append. (pandas' to_sql
+    # "replace" used to drop the whole table and re-create it without the status /
+    # propensity columns, which broke GET /customers with "no such column".)
+    ids = tuple(customers["customer_id"])
+    marks = ",".join("?" * len(ids))
+    for table in ("transactions", "customer_segments", "customers"):
+        db.execute_query(f"DELETE FROM {table} WHERE customer_id IN ({marks})", ids)
     db.insert_dataframe(customers, "customers")
 
     # ── Transactions ───────────────────────────────────────────────────────
