@@ -236,11 +236,13 @@ class AegisAgent:
         customer_id: str,
         prompt: str,
         intelligence_context: Optional[Dict[str, Any]] = None,
+        reason: str = "",
     ) -> ActionProposal:
         import requests
-        
-        model = "llama3.2:3b"
-        logger.info(f"Falling back to local Ollama model: {model}")
+
+        model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+        ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+        logger.info(f"Falling back to Ollama model {model} at {ollama_url} ({reason or 'primary LLM failed'})")
         
         system_instruction = (
             "You are Aegis, a governed AI commerce agent.\n"
