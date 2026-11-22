@@ -265,6 +265,43 @@
     /* spinner */
     .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--border-strong);border-top-color:var(--saffron-deep);border-radius:50%;animation:spin .6s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── Operator auth ─────────────────────────── */
+    .auth-zone{padding:12px 16px;border-bottom:1px solid var(--border)}
+    .auth-zone.flash{animation:flash 1s 2}
+    @keyframes flash{50%{background:var(--saffron-wash)}}
+    .auth-form{display:flex;flex-direction:column;gap:6px}
+    .auth-input{font-family:var(--font-mono);font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-tint);color:var(--ink);outline:none;width:100%}
+    .auth-input:focus{border-color:var(--saffron-deep);background:var(--surface)}
+    .auth-row{display:flex;align-items:center;gap:8px}
+    .auth-who{flex:1;min-width:0;font-size:12px;color:var(--ink-dim);font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .auth-who strong{color:var(--ink)}
+    .auth-error{font-size:11px;color:var(--crimson-deep);font-family:var(--font-mono);line-height:1.3}
+    .sys-line{font-family:var(--font-mono);font-size:10px;color:var(--ink-faint);margin-top:8px;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .status-pill.offline .dot{background:var(--crimson);box-shadow:0 0 0 3px var(--crimson-wash)}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+
+    /* ── Next basket chips ─────────────────────────── */
+    .nb-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px;font-size:11px}
+    .nb-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);margin-right:4px}
+    .nb-chip{font-family:var(--font-mono);font-size:11px;padding:3px 9px;border-radius:999px;background:var(--teal-wash);color:var(--teal);border:1px solid var(--teal)}
+    .nb-muted{font-family:var(--font-mono);font-size:11px;color:var(--ink-faint)}
+
+    /* ── Decision context / ledger verify ─────────────────────────── */
+    .ctx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px}
+    .ctx-item{background:var(--surface-tint);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px}
+    .ctx-k{font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint)}
+    .ctx-v{font-family:var(--font-mono);font-size:12px;color:var(--ink);font-weight:600;word-break:break-word}
+    .stage-actions{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12px;font-family:var(--font-mono);color:var(--ink-dim);flex-wrap:wrap}
+    .ok{color:var(--emerald-deep)}
+    .bad{color:var(--crimson-deep)}
+    .msg-box{font-size:13px;color:var(--ink-dim);line-height:1.5}
+    .msg-box.error{color:var(--crimson-deep)}
+
+    /* ── Toast ─────────────────────────── */
+    .toast{position:fixed;right:20px;bottom:20px;max-width:380px;background:var(--ink);color:var(--bg);font-size:13px;padding:12px 16px;border-radius:var(--radius-md);box-shadow:var(--shadow-md);z-index:1100;opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none}
+    .toast.show{opacity:1;transform:none}
+    .toast.error{background:var(--crimson-deep)}
   </style>
 </head>
 <body>
@@ -277,7 +314,25 @@
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
       </div>
       <div class="brand-name">AEGIS</div>
-      <div class="status-pill"><div class="dot"></div>LIVE</div>
+      <div class="status-pill" id="statusPill"><div class="dot"></div><span id="statusText">…</span></div>
+    </div>
+
+    <!-- Operator sign-in (spend & state-changing actions need an operator/admin token) -->
+    <div class="auth-zone" id="authZone">
+      <form class="auth-form" id="loginForm" autocomplete="on">
+        <div class="zone-label">Operator Sign-in</div>
+        <input class="auth-input" id="loginUser" name="username" placeholder="Username" autocomplete="username" required>
+        <input class="auth-input" id="loginPass" name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+        <div class="auth-row">
+          <button class="btn btn-primary" type="submit" id="loginBtn">Sign in</button>
+          <span class="auth-error" id="loginError"></span>
+        </div>
+      </form>
+      <div class="auth-row" id="whoRow" style="display:none">
+        <div class="auth-who" id="whoText"></div>
+        <button class="btn btn-ghost" style="font-size:10px;padding:3px 8px" id="logoutBtn">Sign out</button>
+      </div>
+      <div class="sys-line" id="sysLine"></div>
     </div>
 
     <!-- Ingestion Zone -->
@@ -375,6 +430,7 @@
           <div class="intel-card"><div class="ic-label">Loading</div><div class="ic-value">…</div></div>
         </div>
         <div class="signals-row" id="signalsRow"></div>
+        <div class="nb-row" id="nbRow"></div>
         <table class="features-table" id="featuresTable"></table>
       </div>
 
@@ -382,7 +438,7 @@
       <div class="agent-panel">
         <div class="panel-eyebrow">2 · LLM Agent Prompt</div>
         <div class="prompt-wrap">
-          <textarea class="prompt-textarea" id="promptTA" rows="2">Assess this customer for a win-back reactivation offer. Be precise.</textarea>
+          <textarea class="prompt-textarea" id="promptTA" rows="2" maxlength="4000">Assess this customer for a win-back reactivation offer. Be precise.</textarea>
           <button class="btn btn-primary" id="runBtn2">▶ Execute</button>
         </div>
       </div>
@@ -499,179 +555,335 @@
 
 <script>
 const API = '';
+const AUTH_KEY = 'aegis.auth';          // sessionStorage: survives reloads, not other tabs
+const OPERATOR_ROLES = ['admin', 'operator'];
+
 let customers = [];
 let filteredCustomers = [];
 let activeId = null;
+let activeIntel = null;
 let ingestionRunId = null;
 let selectedIds = new Set();
 let pendingConfirmAction = null;
 let datasetImportRunId = null;
+let auth = loadAuth();                  // {access, refresh, username, role}
 
 // ── DOM refs ──────────────────────────────────────────
-const heroEl = document.getElementById('hero');
-const consoleEl = document.getElementById('console');
-const rosterEl = document.getElementById('roster');
-const rosterCount = document.getElementById('rosterCount');
-const fileNameEl = document.getElementById('fileName');
-const progressWrap = document.getElementById('progressWrap');
-const progStatus = document.getElementById('progStatus');
-const progPct = document.getElementById('progPct');
-const progFill = document.getElementById('progFill');
-const progStats = document.getElementById('progStats');
-const bulkBar = document.getElementById('bulkBar');
-const bulkCount = document.getElementById('bulkCount');
-const selectAllCheck = document.getElementById('selectAllCheck');
-const searchInput = document.getElementById('searchInput');
+const $ = id => document.getElementById(id);
+const heroEl = $('hero');
+const consoleEl = $('console');
+const rosterEl = $('roster');
+const rosterCount = $('rosterCount');
+const fileNameEl = $('fileName');
+const progressWrap = $('progressWrap');
+const progStatus = $('progStatus');
+const progPct = $('progPct');
+const progFill = $('progFill');
+const progStats = $('progStats');
+const bulkBar = $('bulkBar');
+const bulkCount = $('bulkCount');
+const selectAllCheck = $('selectAllCheck');
+const searchInput = $('searchInput');
+
+// ── Utilities ─────────────────────────────────────────
+// Every value that came from the API or a CSV is escaped before it touches innerHTML:
+// customer ids, segments and reasons are data, never markup.
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtTs(ts) {
+  const s = String(ts || '').replace('T', ' ');
+  return s.length >= 19 ? s.slice(5, 19) : (s || '—');   // MM-DD HH:MM:SS (UTC)
+}
+function fmtINR(n, digits = 0) {
+  return (typeof n === 'number' && isFinite(n))
+    ? '₹' + n.toLocaleString('en-IN', {minimumFractionDigits: digits, maximumFractionDigits: digits}) : '—';
+}
+let toastTimer = null;
+function toast(msg, isError = false) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = 'toast'; }, isError ? 6000 : 3500);
+}
+
+// ── Auth & API ────────────────────────────────────────
+function loadAuth() {
+  try { return JSON.parse(sessionStorage.getItem(AUTH_KEY)) || null; } catch { return null; }
+}
+function saveAuth(a) {
+  auth = a;
+  try { a ? sessionStorage.setItem(AUTH_KEY, JSON.stringify(a)) : sessionStorage.removeItem(AUTH_KEY); } catch {}
+  renderAuth();
+}
+function canOperate() { return !!(auth && auth.access && OPERATOR_ROLES.includes(auth.role)); }
+
+class ApiError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+
+let refreshing = null;
+function refreshAccess() {
+  if (!refreshing) {
+    refreshing = (async () => {
+      try {
+        const r = await fetch(API + '/auth/refresh', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({refresh_token: auth && auth.refresh}),
+        });
+        if (!r.ok) return false;
+        const d = await r.json();
+        saveAuth({...auth, access: d.access_token});
+        return true;
+      } catch { return false; }
+      finally { setTimeout(() => { refreshing = null; }, 0); }
+    })();
+  }
+  return refreshing;
+}
+
+async function api(path, {method = 'GET', json, form, needAuth = false} = {}, retried = false) {
+  if (needAuth && !(auth && auth.access)) {
+    promptSignIn('Sign in as an operator to do this.');
+    throw new ApiError(401, 'Sign in as an operator to do this.');
+  }
+  const headers = {};
+  if (json !== undefined) headers['Content-Type'] = 'application/json';
+  if (auth && auth.access) headers['Authorization'] = 'Bearer ' + auth.access;
+  const res = await fetch(API + path, {method, headers, body: form ?? (json !== undefined ? JSON.stringify(json) : undefined)});
+
+  if (res.status === 401 && auth && auth.refresh && !retried && await refreshAccess()) {
+    return api(path, {method, json, form, needAuth}, true);
+  }
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    if (res.status === 401 && auth) { saveAuth(null); promptSignIn('Your session expired — sign in again.'); }
+    let msg = data && data.detail !== undefined
+      ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail))
+      : (typeof data === 'string' && data ? data : res.statusText || 'Request failed');
+    if (res.status === 403) msg = 'Your role is read-only — an operator or admin account is required.';
+    throw new ApiError(res.status, msg);
+  }
+  return data;
+}
+
+function promptSignIn(msg) {
+  $('loginError').textContent = msg || '';
+  const zone = $('authZone');
+  zone.classList.remove('flash'); void zone.offsetWidth; zone.classList.add('flash');
+  if (!auth) $('loginUser').focus();
+}
+
+function renderAuth() {
+  const signedIn = !!(auth && auth.access);
+  $('loginForm').style.display = signedIn ? 'none' : '';
+  $('whoRow').style.display = signedIn ? '' : 'none';
+  $('whoText').innerHTML = signedIn
+    ? `Signed in as <strong>${esc(auth.username)}</strong> · ${esc(auth.role || '…')}` : '';
+  const hint = canOperate() ? '' : (signedIn ? 'Read-only role' : 'Sign in as an operator first');
+  ['runBtn', 'runBtn2', 'uploadBtn', 'archiveBtn', 'deleteBtn'].forEach(id => { const b = $(id); if (b) b.title = hint; });
+}
+
+async function doLogin(e) {
+  e.preventDefault();
+  const username = $('loginUser').value.trim();
+  const password = $('loginPass').value;
+  const btn = $('loginBtn');
+  btn.disabled = true; $('loginError').textContent = '';
+  try {
+    const r = await fetch(API + '/auth/login', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password}),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(r.status === 429 ? (d.detail || 'Too many attempts. Try again later.') : 'Invalid credentials');
+    saveAuth({access: d.access_token, refresh: d.refresh_token, username, role: null});
+    const me = await api('/auth/me');
+    saveAuth({...auth, username: me.username, role: me.role});
+    $('loginPass').value = '';
+    toast(`Signed in as ${me.username} (${me.role})`);
+  } catch (err) {
+    $('loginError').textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function restoreSession() {
+  renderAuth();
+  if (!auth) return;
+  try {
+    const me = await api('/auth/me');
+    saveAuth({...auth, username: me.username, role: me.role});
+  } catch { saveAuth(null); }
+}
+
+async function loadHealth() {
+  const pill = $('statusPill');
+  try {
+    const h = await api('/health');
+    const c = h.components || {};
+    pill.classList.remove('offline');
+    $('statusText').textContent = 'LIVE';
+    $('sysLine').textContent = `LLM: ${c.llm || 'unknown'} · Payments: ${c.payments || 'unknown'}`;
+  } catch {
+    pill.classList.add('offline');
+    $('statusText').textContent = 'OFFLINE';
+    $('sysLine').textContent = 'API unreachable';
+  }
+}
 
 // ── Init ──────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  restoreSession();
+  loadHealth();
   loadCustomers();
 
-  document.getElementById('csvFile').addEventListener('change', e => {
+  $('loginForm').addEventListener('submit', doLogin);
+  $('logoutBtn').addEventListener('click', () => { saveAuth(null); toast('Signed out'); });
+
+  $('csvFile').addEventListener('change', e => {
     const f = e.target.files[0];
     fileNameEl.textContent = f ? f.name : 'Choose CSV…';
   });
-  document.getElementById('uploadBtn').addEventListener('click', doUpload);
-  document.getElementById('refreshBtn').addEventListener('click', loadCustomers);
-  document.getElementById('backBtn').addEventListener('click', () => {
-    activeId = null;
+  $('uploadBtn').addEventListener('click', doUpload);
+  $('refreshBtn').addEventListener('click', loadCustomers);
+  $('backBtn').addEventListener('click', () => {
+    activeId = null; activeIntel = null;
     heroEl.style.display = '';
     consoleEl.classList.remove('active');
     renderRoster();
   });
-  document.getElementById('runBtn').addEventListener('click', runPipeline);
-  document.getElementById('runBtn2').addEventListener('click', runPipeline);
+  $('runBtn').addEventListener('click', runPipeline);
+  $('runBtn2').addEventListener('click', runPipeline);
 
-  // Selection controls
-  selectAllCheck.addEventListener('change', () => {
-    if (selectAllCheck.checked) {
-      filteredCustomers.forEach(c => selectedIds.add(c.customer_id));
-    } else {
-      filteredCustomers.forEach(c => selectedIds.delete(c.customer_id));
+  // Roster: one delegated handler — no inline onclick strings built from customer ids
+  rosterEl.addEventListener('click', e => {
+    const check = e.target.closest('.cust-check');
+    if (check) {
+      e.stopPropagation();
+      const id = check.dataset.id;
+      check.checked ? selectedIds.add(id) : selectedIds.delete(id);
+      renderRoster(); updateBulkBar();
+      return;
     }
-    renderRoster();
-    updateBulkBar();
+    const card = e.target.closest('.cust-card');
+    if (card) openCustomer(card.dataset.id);
+  });
+
+  selectAllCheck.addEventListener('change', () => {
+    filteredCustomers.forEach(c => selectAllCheck.checked ? selectedIds.add(c.customer_id) : selectedIds.delete(c.customer_id));
+    renderRoster(); updateBulkBar();
   });
 
   searchInput.addEventListener('input', () => {
-    const q = searchInput.value.toLowerCase();
-    filteredCustomers = q
-      ? customers.filter(c =>
-          c.customer_id.toLowerCase().includes(q) ||
-          (c.first_name||'').toLowerCase().includes(q) ||
-          (c.last_name||'').toLowerCase().includes(q) ||
-          (c.segment_name||'').toLowerCase().includes(q)
-        )
-      : [...customers];
-    // Clear selection of filtered-out items
-    selectedIds = new Set([...selectedIds].filter(id => filteredCustomers.find(c => c.customer_id === id)));
-    renderRoster();
-    updateBulkBar();
+    applySearch();
+    const visible = new Set(filteredCustomers.map(c => c.customer_id));
+    selectedIds = new Set([...selectedIds].filter(id => visible.has(id)));
+    renderRoster(); updateBulkBar();
   });
 
-  document.getElementById('clearSelBtn').addEventListener('click', () => {
-    selectedIds.clear();
-    renderRoster();
-    updateBulkBar();
-  });
+  $('clearSelBtn').addEventListener('click', () => { selectedIds.clear(); renderRoster(); updateBulkBar(); });
 
-  document.getElementById('archiveBtn').addEventListener('click', () => {
+  const bulk = (endpoint, verb) => async () => {
+    const ids = [...selectedIds];
+    try {
+      await api(endpoint, {method: 'POST', json: {customer_ids: ids}, needAuth: true});
+      toast(`${verb} ${ids.length} customer${ids.length !== 1 ? 's' : ''}`);
+      selectedIds.clear();
+      await loadCustomers();
+      updateBulkBar();
+    } catch (e) { toast(`${verb} failed: ${e.message}`, true); }
+  };
+  $('archiveBtn').addEventListener('click', () => {
+    if (!canOperate()) return promptSignIn('Sign in as an operator to archive customers.');
+    const n = selectedIds.size;
     openConfirm({
       icon: '📦',
-      title: `Archive ${selectedIds.size} customer${selectedIds.size > 1 ? 's' : ''}?`,
-      body: `<strong>${selectedIds.size} customer${selectedIds.size > 1 ? 's' : ''}</strong> will be archived and removed from the active explorer. All transactions, intelligence, and audit records are preserved.`,
+      title: `Archive ${n} customer${n > 1 ? 's' : ''}?`,
+      body: `<strong>${n} customer${n > 1 ? 's' : ''}</strong> will be archived and removed from the active explorer. All transactions, intelligence, and audit records are preserved.`,
       okText: 'Archive',
-      action: async () => {
-        await fetch(API + '/customers/archive', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({customer_ids: [...selectedIds]})
-        });
-        selectedIds.clear();
-        await loadCustomers();
-        updateBulkBar();
-      }
+      action: bulk('/customers/archive', 'Archived'),
     });
   });
-
-  document.getElementById('deleteBtn').addEventListener('click', () => {
+  $('deleteBtn').addEventListener('click', () => {
+    if (!canOperate()) return promptSignIn('Sign in as an operator to delete customers.');
+    const n = selectedIds.size;
     openConfirm({
       icon: '🗑️',
-      title: `Delete ${selectedIds.size} customer${selectedIds.size > 1 ? 's' : ''}?`,
-      body: `<strong>${selectedIds.size} customer${selectedIds.size > 1 ? 's' : ''}</strong> will be marked as deleted and hidden from the explorer. This cannot be undone from the UI.<br><br>Audit ledger entries, transactions, and model intelligence history are <strong>immutable and will not be deleted</strong>.`,
+      title: `Delete ${n} customer${n > 1 ? 's' : ''}?`,
+      body: `<strong>${n} customer${n > 1 ? 's' : ''}</strong> will be marked as deleted and hidden from the explorer. This cannot be undone from the UI.<br><br>Audit ledger entries, transactions, and model intelligence history are <strong>immutable and will not be deleted</strong>.`,
       okText: 'Delete',
       okStyle: 'background:var(--crimson);color:#fff;border-color:var(--crimson-deep)',
-      action: async () => {
-        await fetch(API + '/customers/delete', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({customer_ids: [...selectedIds]})
-        });
-        selectedIds.clear();
-        await loadCustomers();
-        updateBulkBar();
-      }
+      action: bulk('/customers/delete', 'Deleted'),
     });
   });
 
-  document.getElementById('confirmCancel').addEventListener('click', closeConfirm);
-  document.getElementById('confirmOk').addEventListener('click', async () => {
-    if (pendingConfirmAction) {
-      document.getElementById('confirmOk').disabled = true;
-      document.getElementById('confirmOk').textContent = '…';
-      await pendingConfirmAction();
-      closeConfirm();
-    }
+  $('confirmCancel').addEventListener('click', closeConfirm);
+  $('confirmOk').addEventListener('click', async () => {
+    if (!pendingConfirmAction) return;
+    const ok = $('confirmOk');
+    ok.disabled = true; ok.textContent = '…';
+    await pendingConfirmAction();
+    closeConfirm();
   });
-
-  document.getElementById('applyDatasetBtn').addEventListener('click', applyDatasetMode);
+  $('applyDatasetBtn').addEventListener('click', applyDatasetMode);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeConfirm(); closeDatasetModal(); }
+  });
 });
 
 // ── Customers ─────────────────────────────────────────
 async function loadCustomers() {
   try {
-    const res = await fetch(API + '/customers?limit=200');
-    customers = await res.json();
-    filteredCustomers = [...customers];
-    renderRoster();
-  } catch(e) { console.error(e); }
+    const data = await api('/customers?limit=1000');
+    customers = Array.isArray(data) ? data : [];
+  } catch (e) {
+    customers = [];
+    rosterEl.innerHTML = `<div class="roster-empty">Could not load customers.<br>${esc(e.message)}</div>`;
+    rosterCount.textContent = '0';
+    return;
+  }
+  applySearch();
+  renderRoster();
+}
+
+function applySearch() {
+  const q = searchInput.value.toLowerCase();
+  const has = v => String(v || '').toLowerCase().includes(q);
+  filteredCustomers = q
+    ? customers.filter(c => has(c.customer_id) || has(c.first_name) || has(c.last_name) || has(c.segment_name))
+    : [...customers];
 }
 
 function renderRoster() {
   rosterCount.textContent = filteredCustomers.length;
   if (!filteredCustomers.length) {
-    rosterEl.innerHTML = '<div class="roster-empty">No customers found.<br>Upload a CSV to ingest data.</div>';
+    rosterEl.innerHTML = '<div class="roster-empty">No customers found.<br>Sign in and upload a CSV to ingest data.</div>';
+    selectAllCheck.checked = false;
     return;
   }
-
-  const allSelected = filteredCustomers.length > 0 && filteredCustomers.every(c => selectedIds.has(c.customer_id));
+  const allSelected = filteredCustomers.every(c => selectedIds.has(c.customer_id));
   const someSelected = filteredCustomers.some(c => selectedIds.has(c.customer_id));
   selectAllCheck.checked = allSelected;
   selectAllCheck.classList.toggle('indeterminate', someSelected && !allSelected);
 
   rosterEl.innerHTML = filteredCustomers.map(c => {
-    const score = c.propensity_score != null ? (c.propensity_score * 100).toFixed(0) + '%' : '—';
-    const band = c.propensity_band || '—';
-    const seg = c.segment_name || 'Unknown';
-    const checked = selectedIds.has(c.customer_id) ? 'checked' : '';
-    const isActive = c.customer_id === activeId;
+    const id = esc(c.customer_id);
+    const score = typeof c.propensity_score === 'number' ? (c.propensity_score * 100).toFixed(0) + '%' : '—';
     const isSelected = selectedIds.has(c.customer_id);
-    return `<div class="cust-card${isActive ? ' active' : ''}${isSelected ? ' selected' : ''}" data-id="${c.customer_id}">
-      <input type="checkbox" class="cust-check" data-id="${c.customer_id}" ${checked} onclick="onCheckClick(event, '${c.customer_id}')">
-      <div class="cust-info" onclick="openCustomer('${c.customer_id}')">
-        <div class="cust-row-top"><span class="cust-id">${c.customer_id}</span><span class="cust-band">${band}</span></div>
-        <div class="cust-row-bot"><span class="cust-seg">${seg}</span><span class="cust-score">${score}</span></div>
+    const isActive = c.customer_id === activeId;
+    return `<div class="cust-card${isActive ? ' active' : ''}${isSelected ? ' selected' : ''}" data-id="${id}">
+      <input type="checkbox" class="cust-check" data-id="${id}" ${isSelected ? 'checked' : ''} aria-label="Select ${id}">
+      <div class="cust-info">
+        <div class="cust-row-top"><span class="cust-id">${id}</span><span class="cust-band">${esc(c.propensity_band || '—')}</span></div>
+        <div class="cust-row-bot"><span class="cust-seg">${esc(c.segment_name || 'Unscored')}</span><span class="cust-score">${score}</span></div>
       </div>
     </div>`;
   }).join('');
-}
-
-function onCheckClick(event, id) {
-  event.stopPropagation();
-  if (event.target.checked) { selectedIds.add(id); }
-  else { selectedIds.delete(id); }
-  renderRoster();
-  updateBulkBar();
 }
 
 function updateBulkBar() {
@@ -682,46 +894,47 @@ function updateBulkBar() {
 
 // ── Open Customer Console ─────────────────────────────
 async function openCustomer(id) {
-  activeId = id;
+  activeId = id; activeIntel = null;
   renderRoster();
   heroEl.style.display = 'none';
   consoleEl.classList.add('active');
-
-  // Reset stages
-  document.getElementById('resultStages').classList.remove('visible');
+  $('resultStages').classList.remove('visible');
   resetStages();
 
-  // Header
   const c = customers.find(x => x.customer_id === id);
-  document.getElementById('ccName').textContent = (c && c.first_name && c.first_name !== 'User')
+  $('ccName').textContent = (c && c.first_name && c.first_name !== 'User')
     ? `${c.first_name} ${c.last_name || ''}`.trim() : id;
-  document.getElementById('ccMeta').textContent = `${id} · ${c?.segment_name || 'Unknown'} · propensity ${c?.propensity_band || '—'}`;
+  $('ccMeta').textContent = `${id} · ${(c && c.segment_name) || 'Unscored'} · propensity ${(c && c.propensity_band) || '—'}`;
 
-  // Load intelligence
-  document.getElementById('intelGrid').innerHTML = '<div class="intel-card"><div class="ic-label">Loading ML intelligence</div><div class="ic-value"><span class="spin"></span></div></div>';
-  document.getElementById('signalsRow').innerHTML = '';
-  document.getElementById('featuresTable').innerHTML = '';
+  $('intelGrid').innerHTML = '<div class="intel-card"><div class="ic-label">Loading ML intelligence</div><div class="ic-value"><span class="spin"></span></div></div>';
+  $('signalsRow').innerHTML = '';
+  $('nbRow').innerHTML = '';
+  $('featuresTable').innerHTML = '';
 
   try {
-    const res = await fetch(API + `/aegis/intelligence/${encodeURIComponent(id)}`);
-    if (!res.ok) throw new Error(await res.text());
-    const intel = await res.json();
+    const intel = await api(`/aegis/intelligence/${encodeURIComponent(id)}`);
+    if (activeId !== id) return;  // the operator moved on while this was loading
+    activeIntel = intel;
     renderIntelligence(intel);
-  } catch(e) {
-    document.getElementById('intelGrid').innerHTML = `<div class="intel-card" style="grid-column:1/-1"><div class="ic-label">Intelligence Unavailable</div><div class="ic-value" style="font-size:14px;color:var(--crimson)">${e.message}</div></div>`;
+  } catch (e) {
+    $('intelGrid').innerHTML = `<div class="intel-card" style="grid-column:1/-1"><div class="ic-label">Intelligence Unavailable</div><div class="ic-value" style="font-size:14px;color:var(--crimson)">${esc(e.message)}</div></div>`;
   }
 }
 
 function renderIntelligence(intel) {
-  const scoreStr = intel.purchase_probability_30d != null
+  if (intel.status === 'INCOMPLETE') {
+    $('intelGrid').innerHTML = `<div class="intel-card" style="grid-column:1/-1"><div class="ic-label">Intelligence Incomplete — no financial action possible</div><div class="ic-value" style="font-size:14px;color:var(--crimson)">${esc(intel.incomplete_reason)}</div></div>`;
+    return;
+  }
+  const scoreStr = typeof intel.purchase_probability_30d === 'number'
     ? (intel.purchase_probability_30d * 100).toFixed(1) + '%' : '—';
   const cards = [
-    { label: 'Purchase Probability (30d)', value: scoreStr, sub: intel.propensity_band || '—' },
-    { label: 'Recommendation', value: '', sub: intel.recommendation || '—', large: true },
-    { label: 'Confidence', value: intel.recommendation_confidence || '—', sub: intel.policy_rule_id || '' },
-    { label: 'Evidence Status', value: '', sub: intel.evidence_status || '—', large: true },
+    {label: 'Purchase Probability (30d)', value: esc(scoreStr), sub: esc(intel.propensity_band || '—')},
+    {label: 'Segment', value: '', sub: esc(intel.segment || '—'), large: true},
+    {label: 'Recommendation', value: esc(intel.recommendation_confidence || '—'), sub: `${esc(intel.recommendation || '—')} · ${esc(intel.policy_rule_id || '')}`},
+    {label: 'Evidence Status', value: '', sub: esc(intel.evidence_status || '—'), large: true},
   ];
-  document.getElementById('intelGrid').innerHTML = cards.map(c => `
+  $('intelGrid').innerHTML = cards.map(c => `
     <div class="intel-card">
       <div class="ic-label">${c.label}</div>
       <div class="ic-value" style="${c.large ? 'font-size:14px;line-height:1.3;margin-top:4px' : ''}">${c.value}${c.large ? c.sub : ''}</div>
@@ -729,143 +942,220 @@ function renderIntelligence(intel) {
     </div>`).join('');
 
   const signals = intel.behavioral_signals || {};
-  document.getElementById('signalsRow').innerHTML = Object.entries(signals).map(([k, v]) =>
-    `<div class="signal-chip ${v ? 'active' : 'inactive'}"><div class="signal-dot"></div>${k.replace(/_/g,' ')}</div>`
+  $('signalsRow').innerHTML = Object.entries(signals).map(([k, v]) =>
+    `<div class="signal-chip ${v ? 'active' : 'inactive'}"><div class="signal-dot"></div>${esc(k.replace(/_/g, ' '))}</div>`
   ).join('');
+
+  const nb = intel.next_basket || {};
+  $('nbRow').innerHTML = nb.available
+    ? '<span class="nb-label">Next basket</span>' + (nb.top_products || []).map(p =>
+        `<span class="nb-chip">${esc(p.product_name)} · ${(Number(p.probability) * 100).toFixed(0)}%</span>`).join('')
+    : `<span class="nb-label">Next basket</span><span class="nb-muted">${esc(nb.unavailable_reason || 'unavailable')}</span>`;
 
   const snap = intel.feature_snapshot || {};
   const rows = [
     ['Recency', snap.recency_days != null ? snap.recency_days + ' days' : '—'],
     ['Lifetime', snap.lifetime_days != null ? snap.lifetime_days + ' days' : '—'],
-    ['Orders', snap.purchase_order_count != null ? snap.purchase_order_count : '—'],
-    ['Total Spend', snap.total_net_spend != null ? '₹' + snap.total_net_spend.toLocaleString('en-IN') : '—'],
-    ['Avg Order Value', snap.average_order_value != null ? '₹' + snap.average_order_value.toFixed(2) : '—'],
-    ['90d Spend', snap.net_spend_90d != null ? '₹' + snap.net_spend_90d.toLocaleString('en-IN') : '—'],
+    ['Orders', snap.purchase_order_count ?? '—'],
+    ['Total Spend', fmtINR(snap.total_net_spend)],
+    ['Avg Order Value', fmtINR(snap.average_order_value, 2)],
+    ['90d Spend', fmtINR(snap.net_spend_90d)],
     ['Return Rate', snap.return_rate != null ? (snap.return_rate * 100).toFixed(1) + '%' : '—'],
   ];
-  document.getElementById('featuresTable').innerHTML = rows.map(([k, v]) =>
-    `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  $('featuresTable').innerHTML = rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
 }
 
 // ── Run Pipeline ──────────────────────────────────────
 async function runPipeline() {
   if (!activeId) return;
-  const prompt = document.getElementById('promptTA').value.trim() || 'Assess this customer for a win-back reactivation offer.';
+  if (!canOperate()) {
+    return promptSignIn(auth ? 'Your role is read-only — an operator or admin account is required.'
+                             : 'Sign in as an operator to run the agent.');
+  }
+  const id = activeId;
+  const prompt = $('promptTA').value.trim() || 'Assess this customer for a win-back reactivation offer.';
+  const buttons = [$('runBtn'), $('runBtn2')];
+  buttons.forEach(b => b.disabled = true);
 
-  document.getElementById('resultStages').classList.add('visible');
+  $('resultStages').classList.add('visible');
   resetStages();
   setStage('Agent', 'running', 'RUNNING');
-  setStagePre('sjAgent', 'Sending to Gemini LLM agent…');
+  setStagePre('sjAgent', 'Sending evidence to the LLM agent…');
 
   try {
-    const res = await fetch(API + '/aegis/reactivate', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ customer_id: activeId, prompt })
-    });
-    const data = await res.json();
-    renderPipelineResult(data);
-  } catch(e) {
-    setStage('Agent', 'denied', 'ERROR');
-    setStagePre('sjAgent', 'Request failed: ' + e.message);
+    const data = await api('/aegis/reactivate', {method: 'POST', json: {customer_id: id, prompt}, needAuth: true});
+    if (activeId === id) renderPipelineResult(data);
+  } catch (e) {
+    if (activeId === id) renderPipelineError(e);
+  } finally {
+    buttons.forEach(b => b.disabled = false);
+    if (activeId === id) loadAuditLedger(id);
   }
 }
 
+function contextGrid(intel, proposal) {
+  const items = [
+    ['Requested discount', proposal && proposal.requested_discount_pct != null ? proposal.requested_discount_pct + '%' : '—'],
+    ['Campaign (server-chosen)', intel && intel.campaign || 'none'],
+    ['Campaign cap', intel && intel.campaign_max_discount_pct != null ? intel.campaign_max_discount_pct + '%' : '—'],
+    ['Base amount', intel ? fmtINR(intel.base_amount_inr) : '—'],
+    ['Policy rule (ML)', intel && intel.policy_rule_id || '—'],
+    ['Segment / band', intel ? `${intel.segment || '—'} / ${intel.propensity_band || '—'}` : '—'],
+    ['Evidence confidence', intel && intel.recommendation_confidence || '—'],
+  ];
+  return `<div class="ctx-grid">${items.map(([k, v]) =>
+    `<div class="ctx-item"><div class="ctx-k">${esc(k)}</div><div class="ctx-v">${esc(v)}</div></div>`).join('')}</div>`;
+}
+
 function renderPipelineResult(data) {
-  const proposal = data.proposal || {};
-  setStage('Agent', 'done', 'COMPLETE');
-  setStagePre('sjAgent', syntaxHighlight(proposal));
+  const proposal = data.proposal;
+  if (proposal) {
+    setStage('Agent', 'done', 'COMPLETE');
+    setStagePre('sjAgent', syntaxHighlight(proposal), true);
+  } else {
+    setStage('Agent', 'done', 'SKIPPED');
+    setStagePre('sjAgent', 'The LLM was not called: the request was blocked before any reasoning or spend.');
+  }
 
   if (data.status === 'DENIED') {
     setStage('Policy', 'denied', 'DENIED');
-    document.getElementById('sjPolicy').innerHTML = `
+    $('sjPolicy').innerHTML = `
       <div class="policy-box denied">
         <div class="policy-icon">🚫</div>
-        <div><div class="policy-verdict">POLICY DENIED</div><div class="policy-reason">${data.reason || 'Policy gate rejected this proposal.'}</div></div>
-      </div>
-      <pre class="stage-json">${syntaxHighlight(proposal)}</pre>`;
+        <div><div class="policy-verdict">POLICY DENIED</div><div class="policy-reason">${esc(data.reason || 'Policy gate rejected this proposal.')}</div></div>
+      </div>${contextGrid(data.intelligence, proposal)}`;
     setStage('Rzp', 'done', 'BLOCKED');
-    document.getElementById('sjRzp').innerHTML = '<p style="color:var(--ink-dim);font-size:13px">Not executed — policy gate denied the proposal.</p>';
+    $('sjRzp').innerHTML = '<p class="msg-box">Not executed — Razorpay is never called without an approved proposal.</p>';
   } else if (data.status === 'EXECUTED') {
     setStage('Policy', 'approved', 'APPROVED');
-    document.getElementById('sjPolicy').innerHTML = `
+    $('sjPolicy').innerHTML = `
       <div class="policy-box approved">
         <div class="policy-icon">✅</div>
-        <div><div class="policy-verdict">POLICY APPROVED</div><div class="policy-reason">Proposal passed all deterministic policy rules.</div></div>
-      </div>`;
+        <div><div class="policy-verdict">POLICY APPROVED</div><div class="policy-reason">Proposal passed every deterministic rule: discount caps, eligibility, confidence, velocity, budget and cooldown.</div></div>
+      </div>${contextGrid(data.intelligence, proposal)}`;
     setStage('Rzp', 'approved', 'EXECUTED');
     const rzp = data.razorpay || {};
-    const amountINR = rzp.amount ? (rzp.amount / 100).toLocaleString('en-IN', {minimumFractionDigits:2}) : '—';
-    document.getElementById('sjRzp').innerHTML = `
+    const amount = typeof rzp.amount === 'number' ? fmtINR(rzp.amount / 100, 2) : '—';
+    const url = typeof rzp.short_url === 'string' && /^https:\/\//.test(rzp.short_url) ? rzp.short_url : '';
+    $('sjRzp').innerHTML = `
       <div class="rzp-link-card">
         <div class="rzp-icon">💳</div>
         <div>
-          <div style="font-size:11px;font-family:var(--font-mono);color:var(--ink-dim);margin-bottom:4px">PAYMENT LINK GENERATED</div>
-          <div class="rzp-link">${rzp.short_url || rzp.id || 'N/A'}</div>
+          <div style="font-size:11px;font-family:var(--font-mono);color:var(--ink-dim);margin-bottom:4px">PAYMENT LINK GENERATED · ${esc(rzp.status || 'created')}</div>
+          ${url ? `<a class="rzp-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`
+                : `<div class="rzp-link">${esc(rzp.id || 'N/A')}</div>`}
         </div>
-        <div class="rzp-amount">₹${amountINR}</div>
+        <div class="rzp-amount">${esc(amount)}</div>
+      </div>
+      <div class="stage-actions">
+        <button class="btn btn-ghost" id="reconcileBtn">↻ Check payment status</button>
+        <span id="reconcileOut"></span>
       </div>
       <pre class="stage-json" style="margin-top:12px">${syntaxHighlight(rzp)}</pre>`;
+    $('reconcileBtn').addEventListener('click', () => runReconcile(data.action_id));
   } else if (data.status === 'FAILED') {
     setStage('Policy', 'approved', 'APPROVED');
+    $('sjPolicy').innerHTML = contextGrid(data.intelligence, proposal);
     setStage('Rzp', 'denied', 'FAILED');
-    document.getElementById('sjRzp').innerHTML = `<pre class="stage-json">${syntaxHighlight(data)}</pre>`;
+    $('sjRzp').innerHTML = `<p class="msg-box error">Razorpay error: ${esc(data.error || 'unknown')}</p>`;
   }
+}
 
-  loadAuditLedger(activeId);
+function renderPipelineError(e) {
+  const titles = {422: 'INCOMPLETE', 503: 'FAILED', 404: 'NOT FOUND', 401: 'SIGN-IN', 403: 'FORBIDDEN'};
+  setStage('Agent', 'denied', titles[e.status] || 'ERROR');
+  const prefix = e.status === 422 ? 'Intelligence incomplete — no financial action is possible. '
+               : e.status === 503 ? 'The LLM could not produce a proposal. ' : '';
+  $('sjAgent').innerHTML = `<span class="msg-box error">${esc(prefix + e.message)}</span>`;
+  setStage('Policy', 'pending', 'NOT REACHED');
+  $('sjPolicy').innerHTML = '<p class="msg-box">The gate only evaluates a valid proposal.</p>';
+  setStage('Rzp', 'pending', 'NOT REACHED');
+  $('sjRzp').innerHTML = '<p class="msg-box">Razorpay is never called without an approved proposal.</p>';
+}
+
+async function runReconcile(actionId) {
+  const out = $('reconcileOut');
+  if (out) out.textContent = 'Checking…';
+  try {
+    const d = await api('/aegis/reconcile', {method: 'POST', needAuth: true});
+    const mine = (d.reconciled || []).find(r => r.action_id === actionId);
+    if (out) out.innerHTML = mine
+      ? `Razorpay: <strong>${esc(mine.razorpay_status)}</strong> · ${esc(mine.new_status)}`
+      : 'No open link to check (already reconciled).';
+    loadAuditLedger(activeId);
+  } catch (e) { if (out) out.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
 }
 
 async function loadAuditLedger(customerId) {
   setStage('Audit', 'running', 'LOADING');
   try {
-    const res = await fetch(API + `/aegis/audit/${encodeURIComponent(customerId)}`);
-    const events = await res.json();
+    const events = await api(`/aegis/audit/${encodeURIComponent(customerId)}?limit=10`);
+    if (activeId !== customerId) return;
+    const evts = Array.isArray(events) ? events : [];   // API returns newest first
     setStage('Audit', 'done', 'RECORDED');
-    const evts = Array.isArray(events) ? events : (events.events || []);
-    const recent = evts.slice(-8).reverse();
-    document.getElementById('sjAudit').innerHTML = recent.length
-      ? recent.map(ev => `<div class="audit-row">
-          <div class="audit-ts">${(ev.timestamp || ev.created_at || '').split('T').pop()?.slice(0,8) || '—'}</div>
-          <div class="audit-event">${ev.event_type || ev.type || '—'}</div>
-          <div class="audit-actor">${ev.actor || '—'}</div>
-          <div class="audit-status ${ev.outcome || ev.status || ''}">${ev.outcome || ev.status || '—'}</div>
-        </div>`).join('')
-      : '<p style="color:var(--ink-dim);font-size:13px">No audit events found.</p>';
-  } catch(e) {
-    setStage('Audit', 'done', 'RECORDED');
-    document.getElementById('sjAudit').innerHTML = '<p style="color:var(--ink-dim);font-size:13px">Audit events logged server-side.</p>';
+    const known = ['SUCCESS', 'DENIED', 'APPROVED', 'IN_PROGRESS', 'FAILED'];
+    $('sjAudit').innerHTML = (evts.length
+      ? evts.map(ev => {
+          const st = String(ev.status || '—');
+          return `<div class="audit-row">
+            <div class="audit-ts">${esc(fmtTs(ev.timestamp))}</div>
+            <div class="audit-event">${esc(ev.event_type || '—')}</div>
+            <div class="audit-actor">${esc(ev.actor || '—')}</div>
+            <div class="audit-status ${known.includes(st) ? st : ''}">${esc(st)}</div>
+          </div>`;
+        }).join('')
+      : '<p class="msg-box">No audit events found.</p>') + `
+      <div class="stage-actions">
+        <button class="btn btn-ghost" id="verifyBtn">⛓ Verify ledger integrity</button>
+        <span id="verifyOut">Times in UTC · newest first</span>
+      </div>`;
+    $('verifyBtn').addEventListener('click', verifyLedger);
+  } catch (e) {
+    setStage('Audit', 'denied', 'ERROR');
+    $('sjAudit').innerHTML = `<p class="msg-box error">Could not load the audit ledger: ${esc(e.message)}</p>`;
   }
 }
 
+async function verifyLedger() {
+  const out = $('verifyOut');
+  out.textContent = 'Recomputing SHA-256 chain…';
+  try {
+    const v = await api('/aegis/ledger/verify', {needAuth: true});
+    out.innerHTML = v.valid
+      ? `<span class="ok">✓ Hash chain intact</span> · ${esc(v.checked)} events verified`
+      : `<span class="bad">✗ Chain broken at ${esc(v.broken_at)}</span> · ${esc(v.reason)}`;
+  } catch (e) { out.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+
 // ── Stage helpers ─────────────────────────────────────
-function toggleStage(id) { document.getElementById(id).classList.toggle('open'); }
+function toggleStage(id) { $(id).classList.toggle('open'); }
 
 function resetStages() {
-  ['Agent','Policy','Rzp','Audit'].forEach(s => setStage(s, 'pending', 'PENDING'));
+  ['Agent', 'Policy', 'Rzp', 'Audit'].forEach(s => setStage(s, 'pending', 'PENDING'));
   setStagePre('sjAgent', 'Waiting for execution…');
-  document.getElementById('sjPolicy').innerHTML = '<p style="color:var(--ink-dim);font-size:13px">Awaiting agent proposal…</p>';
-  document.getElementById('sjRzp').innerHTML = '<p style="color:var(--ink-dim);font-size:13px">Awaiting policy gate…</p>';
-  document.getElementById('sjAudit').innerHTML = '<p style="color:var(--ink-dim);font-size:13px">Awaiting execution…</p>';
+  $('sjPolicy').innerHTML = '<p class="msg-box">Awaiting agent proposal…</p>';
+  $('sjRzp').innerHTML = '<p class="msg-box">Awaiting policy gate…</p>';
+  $('sjAudit').innerHTML = '<p class="msg-box">Awaiting execution…</p>';
 }
 
 function setStage(name, cls, badge) {
-  const sn = document.getElementById('sn' + name);
-  const sb = document.getElementById('sb' + name);
+  const sn = $('sn' + name);
+  const sb = $('sb' + name);
   if (!sn || !sb) return;
   sn.className = 'stage-num ' + cls;
   sb.className = 'stage-badge badge-' + (cls === 'running' ? 'running' : cls === 'approved' || cls === 'done' ? 'done' : cls === 'denied' ? 'denied' : 'pending');
   sb.textContent = badge;
 }
 
-function setStagePre(id, content) {
-  const el = document.getElementById(id);
+function setStagePre(id, content, isHtml = false) {
+  const el = $(id);
   if (!el) return;
-  el.innerHTML = typeof content === 'string' ? content : syntaxHighlight(content);
+  if (isHtml) el.innerHTML = content; else el.textContent = content;
 }
 
-// ── JSON syntax highlight ─────────────────────────────
+// ── JSON syntax highlight (input is escaped first) ────
 function syntaxHighlight(obj) {
-  const json = JSON.stringify(obj, null, 2);
+  const json = JSON.stringify(obj ?? {}, null, 2).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g, match => {
     let cls = 'json-num';
     if (/^"/.test(match)) { cls = /:$/.test(match) ? 'json-key' : 'json-str'; }
@@ -878,23 +1168,22 @@ function syntaxHighlight(obj) {
 
 // ── Confirm modal ─────────────────────────────────────
 function openConfirm({icon, title, body, okText, okStyle, action}) {
-  document.getElementById('confirmIcon').textContent = icon || '⚠️';
-  document.getElementById('confirmTitle').textContent = title;
-  document.getElementById('confirmBody').innerHTML = body;
-  const okBtn = document.getElementById('confirmOk');
+  $('confirmIcon').textContent = icon || '⚠️';
+  $('confirmTitle').textContent = title;
+  $('confirmBody').innerHTML = body;   // built from counts only, never from data
+  const okBtn = $('confirmOk');
   okBtn.textContent = okText || 'Confirm';
   okBtn.style.cssText = okStyle || '';
   okBtn.disabled = false;
   pendingConfirmAction = action;
-  document.getElementById('confirmModal').classList.add('open');
+  $('confirmModal').classList.add('open');
 }
 
 function closeConfirm() {
-  document.getElementById('confirmModal').classList.remove('open');
+  $('confirmModal').classList.remove('open');
   pendingConfirmAction = null;
-  document.getElementById('confirmOk').textContent = 'Confirm';
-  document.getElementById('confirmOk').disabled = false;
-  document.getElementById('confirmOk').style.cssText = '';
+  const ok = $('confirmOk');
+  ok.textContent = 'Confirm'; ok.disabled = false; ok.style.cssText = '';
 }
 
 // ── Dataset modal ─────────────────────────────────────
@@ -908,43 +1197,47 @@ function selectMode(el) {
 
 function openDatasetModal(runId, stats) {
   datasetImportRunId = runId;
-  document.getElementById('datasetModalBody').innerHTML =
-    `Ingestion complete: <strong>${stats.valid_rows || 0} customers</strong> · <strong>${stats.processed_rows || 0} rows processed</strong>.<br>How should Aegis import this dataset?`;
-  document.getElementById('datasetModal').classList.add('open');
+  const n = v => Number(v || 0).toLocaleString('en-IN');
+  $('datasetModalBody').innerHTML =
+    `Ingestion complete: <strong>${n(stats.customer_count)} customers</strong> · ${n(stats.valid_rows)} new transactions` +
+    ` · ${n(stats.duplicate_rows)} duplicates · ${n(stats.invalid_rows)} invalid rows.<br>How should Aegis import this dataset?`;
+  $('datasetModal').classList.add('open');
 }
 
 function closeDatasetModal() {
-  document.getElementById('datasetModal').classList.remove('open');
+  $('datasetModal').classList.remove('open');
 }
 
 async function applyDatasetMode() {
   if (!datasetImportRunId) return;
-  const btn = document.getElementById('applyDatasetBtn');
+  const btn = $('applyDatasetBtn');
   btn.disabled = true; btn.textContent = '…';
   try {
-    const res = await fetch(API + '/datasets/activate', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({run_id: datasetImportRunId, mode: selectedMode})
-    });
-    const data = await res.json();
+    const d = await api('/datasets/activate', {method: 'POST', json: {run_id: datasetImportRunId, mode: selectedMode}, needAuth: true});
     closeDatasetModal();
-    await loadCustomers();
+    datasetImportRunId = null;
+    toast(`Activated ${d.new_customers_activated} customers` + (d.previous_customers_archived ? ` · archived ${d.previous_customers_archived}` : ''));
     selectedIds.clear();
     updateBulkBar();
-  } catch(e) {
-    alert('Failed to apply dataset: ' + e.message);
+    await loadCustomers();
+  } catch (e) {
+    toast('Failed to apply dataset: ' + e.message, true);
   } finally {
     btn.disabled = false; btn.textContent = 'Apply';
-    datasetImportRunId = null;
   }
 }
 
 // ── Ingestion ─────────────────────────────────────────
+function resetUploadBtn() {
+  const btn = $('uploadBtn');
+  btn.disabled = false; btn.textContent = 'Ingest';
+}
+
 async function doUpload() {
-  const fileInput = document.getElementById('csvFile');
-  if (!fileInput.files.length) { alert('Please select a CSV file first.'); return; }
-  const btn = document.getElementById('uploadBtn');
+  if (!canOperate()) return promptSignIn('Sign in as an operator to ingest data.');
+  const fileInput = $('csvFile');
+  if (!fileInput.files.length) { toast('Please select a CSV file first.', true); return; }
+  const btn = $('uploadBtn');
   btn.disabled = true; btn.textContent = '…';
   progressWrap.classList.add('visible');
   progStatus.textContent = 'Uploading…';
@@ -955,44 +1248,41 @@ async function doUpload() {
   try {
     const fd = new FormData();
     fd.append('file', fileInput.files[0]);
-    const res = await fetch(API + '/aegis/ingest/csv', { method: 'POST', body: fd });
-    const d = await res.json();
-    if (d.run_id) { ingestionRunId = d.run_id; pollIngestion(); }
-    else { progStatus.textContent = 'Accepted'; btn.disabled = false; btn.textContent = 'Ingest'; }
-  } catch(e) {
-    progStatus.textContent = 'Upload failed';
-    btn.disabled = false; btn.textContent = 'Ingest';
+    const d = await api('/aegis/ingest/csv', {method: 'POST', form: fd, needAuth: true});
+    ingestionRunId = d.run_id;
+    pollIngestion();
+  } catch (e) {
+    progStatus.textContent = 'Upload failed: ' + e.message;
+    resetUploadBtn();
   }
 }
 
 async function pollIngestion() {
   if (!ingestionRunId) return;
   try {
-    const res = await fetch(API + '/aegis/ingest/status/' + ingestionRunId);
-    const d = await res.json();
-    progStatus.textContent = d.status;
-    const pct = d.progress_percentage || 0;
+    const d = await api('/aegis/ingest/status/' + encodeURIComponent(ingestionRunId));
+    const status = String(d.status || '');
+    progStatus.textContent = status.replace(/_/g, ' ');
+    const pct = Number(d.progress_percentage || 0);
     progPct.textContent = pct.toFixed(1) + '%';
-    progFill.style.width = pct + '%';
-    const v = d.valid_rows || 0, inv = d.invalid_rows || 0, proc = d.processed_rows || 0, tot = d.total_rows || 0;
-    progStats.textContent = `Valid: ${v} | Invalid: ${inv} | ${proc}/${tot}`;
+    progFill.style.width = Math.min(pct, 100) + '%';
+    progStats.textContent = `New: ${d.valid_rows || 0} | Invalid: ${d.invalid_rows || 0} | Dup: ${d.duplicate_rows || 0} | ${d.processed_rows || 0}/${d.total_rows || 0}`;
 
-    if (d.status === 'COMPLETED') {
-      const btn = document.getElementById('uploadBtn');
-      btn.disabled = false; btn.textContent = 'Ingest';
+    if (status === 'COMPLETED') {
+      resetUploadBtn();
       const runId = ingestionRunId;
       ingestionRunId = null;
-      // Show dataset import modal instead of auto-refreshing
       openDatasetModal(runId, d);
-    } else if ((d.status || '').startsWith('FAILED')) {
-      const btn = document.getElementById('uploadBtn');
-      btn.disabled = false; btn.textContent = 'Ingest';
+    } else if (status.startsWith('FAILED')) {
+      resetUploadBtn();
       ingestionRunId = null;
+      toast('Ingestion failed: ' + status.replace(/^FAILED:?\s*/, ''), true);
     } else {
       setTimeout(pollIngestion, 1500);
     }
-  } catch(e) { setTimeout(pollIngestion, 2000); }
+  } catch (e) { setTimeout(pollIngestion, 3000); }
 }
 </script>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
