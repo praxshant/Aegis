@@ -1,3 +1,5 @@
+import html
+import os
 import streamlit as st
 import requests
 import pandas as pd
@@ -11,7 +13,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-API_BASE = "http://localhost:8000"
+API_BASE = os.getenv("API_URL", "http://127.0.0.1:8000").rstrip("/")  # 127.0.0.1: "localhost" tries IPv6 first
+OPERATOR_ROLES = ("admin", "operator")
+
+
+def esc(value) -> str:
+    """Escape anything that came from the API/CSV before it goes into unsafe_allow_html markup."""
+    return html.escape(str(value if value is not None else ""))
 
 # ── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -135,11 +143,13 @@ def get_customers():
     return []
 
 @st.cache_data(ttl=10)
-def api_alive():
+def api_health():
+    """Health payload (incl. which LLM / payment mode is live), or None if the API is down."""
     try:
-        return requests.get(f"{API_BASE}/health", timeout=3).status_code == 200
+        r = requests.get(f"{API_BASE}/health", timeout=3)
+        return r.json() if r.status_code == 200 else None
     except Exception:
-        return False
+        return None
 
 customers = get_customers()
 
@@ -147,6 +157,41 @@ def auth_headers():
     """Bearer header for spend/state-changing endpoints; empty until the operator signs in."""
     tok = st.session_state.get("access_token")
     return {"Authorization": f"Bearer {tok}"} if tok else {}
+
+
+def sign_out():
+    for k in ("access_token", "refresh_token", "operator", "role"):
+        st.session_state.pop(k, None)
+
+
+def _refresh_access_token() -> bool:
+    rt = st.session_state.get("refresh_token")
+    if not rt:
+        return False
+    try:
+        r = requests.post(f"{API_BASE}/auth/refresh", json={"refresh_token": rt}, timeout=10)
+    except Exception:
+        return False
+    if r.status_code != 200:
+        return False
+    st.session_state["access_token"] = r.json()["access_token"]
+    return True
+
+
+def api(method: str, path: str, **kwargs) -> requests.Response:
+    """Authenticated API call. An expired access token is refreshed once with the refresh
+    token; if that fails too the operator is signed out (the caller sees the 401)."""
+    for attempt in range(2):
+        r = requests.request(method, f"{API_BASE}{path}", headers=auth_headers(), **kwargs)
+        if r.status_code != 401 or attempt == 1 or not _refresh_access_token():
+            break
+    if r.status_code == 401:
+        sign_out()
+    return r
+
+
+def can_operate() -> bool:
+    return bool(st.session_state.get("access_token")) and st.session_state.get("role") in OPERATOR_ROLES
 
 # ── Header ────────────────────────────────────────────────────────────────────
 col_logo, col_title = st.columns([1, 9])
@@ -159,59 +204,70 @@ with col_title:
 
 st.divider()
 
-if not api_alive():
-    st.error("⚠️ API is unreachable. Start with: `uvicorn backend.api.main:app --port 8000`")
+health = api_health()
+if not health:
+    st.error(f"⚠️ API is unreachable at `{API_BASE}`. Start with: `uvicorn backend.api.main:app --port 8000`")
     st.stop()
+components = health.get("components", {})
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 st.sidebar.markdown("## 🔐 Operator")
 if st.session_state.get("access_token"):
-    st.sidebar.success(f"Signed in as **{st.session_state.get('operator', 'operator')}**")
-    if st.sidebar.button("Sign out", use_container_width=True):
-        st.session_state.pop("access_token", None)
-        st.session_state.pop("operator", None)
+    role = st.session_state.get("role", "?")
+    st.sidebar.success(f"Signed in as **{st.session_state.get('operator', 'operator')}** · `{role}`")
+    if role not in OPERATOR_ROLES:
+        st.sidebar.caption("Read-only role: agent runs, ingestion and reconciliation need an operator or admin.")
+    if st.sidebar.button("Sign out", width="stretch"):
+        sign_out()
         st.rerun()
 else:
     with st.sidebar.form("login_form"):
         _u = st.text_input("Username")
         _p = st.text_input("Password", type="password")
-        if st.form_submit_button("Sign in", use_container_width=True):
+        if st.form_submit_button("Sign in", width="stretch"):
             try:
                 r = requests.post(f"{API_BASE}/auth/login", json={"username": _u, "password": _p}, timeout=10)
                 if r.status_code == 200:
-                    st.session_state["access_token"] = r.json()["access_token"]
-                    st.session_state["operator"] = _u
+                    tokens = r.json()
+                    st.session_state["access_token"] = tokens["access_token"]
+                    st.session_state["refresh_token"] = tokens.get("refresh_token")
+                    me = api("GET", "/auth/me", timeout=10)
+                    me = me.json() if me.status_code == 200 else {}
+                    st.session_state["operator"] = me.get("username", _u)
+                    st.session_state["role"] = me.get("role", "viewer")
                     st.rerun()
+                elif r.status_code == 429:
+                    st.error("Too many failed attempts. Try again in a few minutes.")
                 else:
                     st.error("Invalid credentials")
             except Exception as e:
                 st.error(f"Login failed: {e}")
+st.sidebar.caption(f"LLM: `{components.get('llm', '?')}` · Payments: `{components.get('payments', '?')}`")
 
 # ── Data Ingestion ──────────────────────────────────────────────────────────
 st.sidebar.markdown("---")
 with st.sidebar.expander("📥 Data Ingestion", expanded=not customers):
-    if not st.session_state.get("access_token"):
-        st.caption("🔒 Sign in to ingest a dataset.")
+    if not can_operate():
+        st.caption("🔒 Sign in as an operator to ingest a dataset.")
     else:
         up = st.file_uploader("Customer/transaction CSV", type="csv", key="ingest_csv")
+        st.caption("UCI Online Retail II exports work as-is; see the README for column aliases.")
         mode = st.selectbox("Activation mode", ["replace", "merge", "new"], index=0,
                             help="replace: archive current data and swap in this run; merge/new: keep existing")
-        if st.button("Ingest & activate", use_container_width=True, disabled=up is None):
+        if st.button("Ingest & activate", width="stretch", disabled=up is None):
             try:
                 files = {"file": (up.name, up.getvalue(), "text/csv")}
-                r = requests.post(f"{API_BASE}/aegis/ingest/csv", files=files,
-                                  headers=auth_headers(), timeout=60)
+                r = api("POST", "/aegis/ingest/csv", files=files, timeout=120)
                 if r.status_code == 401:
-                    st.session_state.pop("access_token", None)
                     st.warning("Session expired — sign in again.")
                     st.stop()
                 if r.status_code != 200:
-                    st.error(f"Ingest failed: {r.text}")
+                    st.error(f"Ingest failed: {r.json().get('detail', r.text) if r.headers.get('content-type', '').startswith('application/json') else r.text}")
                     st.stop()
                 run_id = r.json()["run_id"]
                 prog = st.progress(0, text="Ingesting…")
                 status = {}
-                for _ in range(120):
+                for _ in range(900):  # up to ~15 min for large files
                     status = requests.get(f"{API_BASE}/aegis/ingest/status/{run_id}", timeout=10).json()
                     pct = int(status.get("progress_percentage") or 0)
                     prog.progress(min(pct, 100),
@@ -226,14 +282,13 @@ with st.sidebar.expander("📥 Data Ingestion", expanded=not customers):
                 else:
                     st.error("Ingestion timed out.")
                     st.stop()
-                act = requests.post(f"{API_BASE}/datasets/activate",
-                                    json={"run_id": run_id, "mode": mode},
-                                    headers=auth_headers(), timeout=60)
+                act = api("POST", "/datasets/activate", json={"run_id": run_id, "mode": mode}, timeout=60)
                 if act.status_code != 200:
                     st.error(f"Activation failed: {act.text}")
                     st.stop()
                 get_customers.clear()
-                st.success(f"Ingested {status.get('valid_rows', '?')} valid rows.")
+                st.success(f"Ingested {status.get('valid_rows', '?')} new transactions for "
+                           f"{status.get('customer_count', '?')} customers.")
                 st.rerun()
             except Exception as e:
                 st.error(f"Ingestion error: {e}")
@@ -263,7 +318,7 @@ final_prompt = st.session_state.get("prompt_box", default_prompt)
 st.sidebar.markdown("---")
 
 # ML Intelligence inspect
-if st.sidebar.button("🔬 Inspect ML Intelligence", use_container_width=True):
+if st.sidebar.button("🔬 Inspect ML Intelligence", width="stretch"):
     with st.spinner("Running Aegis model inference..."):
         try:
             res = requests.get(f"{API_BASE}/aegis/intelligence/{selected_id}", timeout=30)
@@ -285,27 +340,25 @@ if "last_intel" in st.session_state:
             st.sidebar.warning(f"⚠️ {intel['incomplete_reason']}")
 
 st.sidebar.markdown("---")
-run_clicked = st.sidebar.button("🚀 Run Aegis Agent", type="primary", use_container_width=True,
-                                disabled=not st.session_state.get("access_token"))
-if not st.session_state.get("access_token"):
-    st.sidebar.caption("🔒 Sign in to authorize an agent run.")
+run_clicked = st.sidebar.button("🚀 Run Aegis Agent", type="primary", width="stretch",
+                                disabled=not can_operate())
+if not can_operate():
+    st.sidebar.caption("🔒 Sign in as an operator to authorize an agent run.")
 
 # ── Run Agent ─────────────────────────────────────────────────────────────────
 if run_clicked:
     st.session_state.pop("last_result", None)
-    with st.spinner("Aegis is reasoning over evidence — Gemini → Policy Gate → Razorpay..."):
+    with st.spinner("Aegis is reasoning over evidence — LLM → Policy Gate → Razorpay..."):
         try:
-            res = requests.post(
-                f"{API_BASE}/aegis/reactivate",
-                json={"customer_id": selected_id, "prompt": final_prompt},
-                headers=auth_headers(),
-                timeout=120,
-            )
+            res = api("POST", "/aegis/reactivate",
+                      json={"customer_id": selected_id, "prompt": final_prompt}, timeout=180)
             if res.status_code == 401:
-                st.session_state.pop("access_token", None)
                 st.warning("Session expired — please sign in again.")
                 st.stop()
-            data = res.json()
+            try:
+                data = res.json()
+            except ValueError:
+                data = {"detail": res.text}
             data["_http_status"] = res.status_code
             st.session_state["last_result"] = data
         except Exception as e:
@@ -339,7 +392,7 @@ if "last_intel" in st.session_state and "error" not in st.session_state["last_in
     with c5:
         st.markdown('<div class="metric-label">SEGMENT</div>', unsafe_allow_html=True)
         seg = intel.get("segment", "Unknown")
-        st.markdown(f'<div class="metric-big" style="font-size:1.1rem; padding-top:8px">{seg}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-big" style="font-size:1.1rem; padding-top:8px">{esc(seg)}</div>', unsafe_allow_html=True)
         st.caption(f"policy rec: {intel.get('recommendation', '—')}")
         
     st.markdown("---")
@@ -348,7 +401,7 @@ if "last_intel" in st.session_state and "error" not in st.session_state["last_in
     nb = intel.get("next_basket", {})
     if nb.get("available"):
         st.markdown("### 🛒 Next Basket Intelligence")
-        st.markdown(f"<small>Model: `{nb.get('model')} v{nb.get('model_version')}` | Specific Item Signal: `{nb.get('signal')}`</small>", unsafe_allow_html=True)
+        st.markdown(f"<small>Model: `{esc(nb.get('model'))} v{esc(nb.get('model_version'))}` | Specific Item Signal: `{esc(nb.get('signal'))}`</small>", unsafe_allow_html=True)
         
         cols = st.columns([2, 1])
         with cols[0]:
@@ -357,7 +410,7 @@ if "last_intel" in st.session_state and "error" not in st.session_state["last_in
                 prob = p.get('probability', 0)
                 bar_len = int(prob * 10)
                 bar = "█" * bar_len + "▒" * (10 - bar_len)
-                st.markdown(f"`{i+1}.` {p.get('product_name')} ` Score: {prob:.2f} ` <span style='color:#00adb5'>{bar}</span>", unsafe_allow_html=True)
+                st.markdown(f"`{i+1}.` {esc(p.get('product_name'))} ` Score: {prob:.2f} ` <span style='color:#00adb5'>{bar}</span>", unsafe_allow_html=True)
                 
         with cols[1]:
             st.markdown("**Predicted Departments**")
@@ -391,12 +444,16 @@ if "last_result" in st.session_state:
     http_status = result.get("_http_status", 0)
     status = result.get("status", "UNKNOWN")
 
-    if http_status == 503 or status in ("CONNECTION_ERROR", "AGENT_FAILED"):
+    if http_status == 503 or http_status >= 500 or status in ("CONNECTION_ERROR", "AGENT_FAILED"):
         stage = "AGENT_FAILED"
+    elif http_status in (401, 403):
+        stage = "FORBIDDEN"
     elif http_status in (422,):
         stage = "INTELLIGENCE_FAILED"
     elif http_status == 404:
         stage = "NOT_FOUND"
+    elif status == "DENIED" and not result.get("proposal"):
+        stage = "BLOCKED_PRE_LLM"   # opted-out / inactive customer: the LLM was never called
     elif status == "DENIED":
         stage = "POLICY_DENIED"
     elif status == "EXECUTED":
@@ -409,22 +466,33 @@ if "last_result" in st.session_state:
     st.markdown("### ⚙️ Execution Pipeline")
 
     # ── Policy banner (most important visual element) ─────────────────────
+    gate_ctx = result.get("intelligence") or {}
     if stage == "POLICY_DENIED":
-        proposal = result.get("proposal", {})
+        proposal = result.get("proposal") or {}
         disc = proposal.get("requested_discount_pct", "?")
         st.markdown(
             f'<div class="policy-banner-denied">'
-            f'🚫 POLICY GATE: DENIED — Gemini requested {disc}% discount. Maximum permitted: 25%. '
-            f'Razorpay was never called.'
+            f'🚫 POLICY GATE: DENIED — {esc(result.get("reason", "policy rule violated"))}. '
+            f'The agent requested {esc(disc)}%. Razorpay was never called.'
             f'</div>',
             unsafe_allow_html=True,
         )
+    elif stage == "BLOCKED_PRE_LLM":
+        st.markdown(
+            f'<div class="policy-banner-denied">🚫 BLOCKED BEFORE THE LLM — {esc(result.get("reason"))}. '
+            f'No reasoning or spend took place.</div>',
+            unsafe_allow_html=True,
+        )
+    elif stage == "FORBIDDEN":
+        st.error("Your account cannot run the agent — an operator or admin role is required.")
     elif stage == "EXECUTED":
-        proposal = result.get("proposal", {})
+        proposal = result.get("proposal") or {}
         disc = proposal.get("requested_discount_pct", "?")
         st.markdown(
             f'<div class="policy-banner-approved">'
-            f'✅ POLICY GATE: APPROVED — {disc}% discount within policy. Payment link created.'
+            f'✅ POLICY GATE: APPROVED — {esc(disc)}% discount within policy '
+            f'(campaign {esc(gate_ctx.get("campaign", "—"))}, cap {esc(gate_ctx.get("campaign_max_discount_pct", "—"))}%). '
+            f'Payment link created.'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -436,13 +504,16 @@ if "last_result" in st.session_state:
     with col1:
         if stage == "AGENT_FAILED":
             st.error("**🤖 1. AI Proposal**\n\n❌ FAILED")
-            err = result.get("detail") or result.get("error", "Gemini unavailable")
-            st.caption(f"Reason: {err[:200]}")
+            err = str(result.get("detail") or result.get("error") or "LLM unavailable")
+            st.caption(f"Reason: {err[:300]}")
         elif stage == "INTELLIGENCE_FAILED":
             st.error("**🤖 1. AI Proposal**\n\n❌ INTELLIGENCE INCOMPLETE")
-            st.caption(result.get("detail", "Cannot build propensity features."))
+            st.caption(str(result.get("detail", "Cannot build propensity features.")))
+        elif stage == "BLOCKED_PRE_LLM":
+            st.info("**🤖 1. AI Proposal**\n\n⏭ SKIPPED")
+            st.caption("Consent/lifecycle gate blocked the request before the LLM was called.")
         elif stage in ("POLICY_DENIED", "EXECUTED", "EXECUTION_FAILED"):
-            proposal = result.get("proposal", {})
+            proposal = result.get("proposal") or {}
             st.success("**🤖 1. AI Proposal**\n\n✅ GENERATED")
             st.markdown(f"**Intent:** `{proposal.get('intent', '—')}`")
             st.markdown(f"**Discount:** `{proposal.get('requested_discount_pct', '—')}%`")
@@ -457,21 +528,21 @@ if "last_result" in st.session_state:
         if stage == "AGENT_FAILED":
             st.info("**🔒 2. Policy Gate**\n\n⏸ NOT REACHED")
             st.caption("Agent must succeed first.")
-        elif stage == "POLICY_DENIED":
-            proposal = result.get("proposal", {})
+        elif stage in ("POLICY_DENIED", "BLOCKED_PRE_LLM"):
+            proposal = result.get("proposal") or {}
             st.error("**🔒 2. Policy Gate**\n\n🚫 DENIED")
-            st.markdown(f"Requested: **{proposal.get('requested_discount_pct', '?')}%**")
-            st.markdown(f"Maximum: **25%**")
-            
-            intel_conf = intel.get('recommendation_confidence', 'Unknown') if 'last_intel' in st.session_state else 'Unknown'
-            st.markdown(f"Evidence Confidence: **{intel_conf}**")
-            st.caption(result.get("reason", "Policy rule violated"))
+            if proposal:
+                st.markdown(f"Requested: **{proposal.get('requested_discount_pct', '?')}%**")
+            if gate_ctx.get("campaign"):
+                st.markdown(f"Campaign: **{gate_ctx['campaign']}** (cap {gate_ctx.get('campaign_max_discount_pct', '—')}%)")
+            if gate_ctx:
+                st.markdown(f"Evidence Confidence: **{gate_ctx.get('recommendation_confidence', '—')}**")
+            st.caption(str(result.get("reason", "Policy rule violated")))
         elif stage in ("EXECUTED", "EXECUTION_FAILED"):
             st.success("**🔒 2. Policy Gate**\n\n✅ APPROVED")
-            
-            intel_conf = intel.get('recommendation_confidence', 'Unknown') if 'last_intel' in st.session_state else 'Unknown'
-            st.markdown(f"Evidence Confidence: **{intel_conf}**")
-            st.caption("Discount within bounds. Confidence met.")
+            st.markdown(f"Campaign: **{gate_ctx.get('campaign', '—')}** (cap {gate_ctx.get('campaign_max_discount_pct', '—')}%)")
+            st.markdown(f"Evidence Confidence: **{gate_ctx.get('recommendation_confidence', '—')}**")
+            st.caption("Discount, eligibility, confidence, velocity, budget and cooldown all passed.")
         else:
             st.info("**🔒 2. Policy Gate**\n\n⏸ NOT REACHED")
 
@@ -480,7 +551,7 @@ if "last_result" in st.session_state:
         if stage in ("AGENT_FAILED", "INTELLIGENCE_FAILED", "NOT_FOUND"):
             st.info("**💸 3. Execution**\n\n⏸ NOT REACHED")
             st.caption("Razorpay is never called without an approved proposal.")
-        elif stage == "POLICY_DENIED":
+        elif stage in ("POLICY_DENIED", "BLOCKED_PRE_LLM"):
             st.warning("**💸 3. Execution**\n\n🛑 BLOCKED")
             st.caption("**Razorpay was never called.** The LLM cannot authorize payments.")
         elif stage == "EXECUTED":
@@ -488,13 +559,13 @@ if "last_result" in st.session_state:
             st.success("**💸 3. Execution**\n\n✅ PAYMENT LINK CREATED")
             amount_inr = rzp.get("amount", 0) / 100
             st.markdown(f"**Amount:** ₹{amount_inr:,.2f} INR")
-            short_url = rzp.get("short_url", "")
-            if short_url:
-                st.markdown(f'<a href="{short_url}" target="_blank" class="razorpay-link">🔗 Open Payment Link</a>', unsafe_allow_html=True)
+            short_url = str(rzp.get("short_url") or "")
+            if short_url.startswith("https://"):
+                st.markdown(f'<a href="{esc(short_url)}" target="_blank" rel="noopener noreferrer" class="razorpay-link">🔗 Open Payment Link</a>', unsafe_allow_html=True)
             st.caption(f"ID: `{rzp.get('id', 'N/A')}`")
         elif stage == "EXECUTION_FAILED":
             st.error("**💸 3. Execution**\n\n❌ RAZORPAY ERROR")
-            st.caption(result.get("error", "Unknown error")[:200])
+            st.caption(str(result.get("error", "Unknown error"))[:300])
         else:
             st.info("**💸 3. Execution**\n\n⏸ NOT REACHED")
 
@@ -503,7 +574,7 @@ if "last_result" in st.session_state:
         if stage == "AGENT_FAILED":
             st.info("**🧾 4. Audit**\n\n✅ FAILURE LOGGED")
             st.caption("Even failures are immutably audited. No silent errors.")
-        elif stage == "POLICY_DENIED":
+        elif stage in ("POLICY_DENIED", "BLOCKED_PRE_LLM"):
             st.success("**🧾 4. Audit**\n\n✅ DENIAL RECORDED")
             st.caption("Full proposal and policy decision recorded in ledger.")
         elif stage == "EXECUTED":
@@ -520,15 +591,27 @@ if "last_result" in st.session_state:
 st.divider()
 
 # ── Audit Ledger ──────────────────────────────────────────────────────────────
-col_a, col_b = st.columns([4, 1])
+col_a, col_b, col_c = st.columns([3, 1, 1])
 with col_a:
     st.markdown("### 🧾 Customer Audit Ledger")
 with col_b:
-    refresh = st.button("🔄 Refresh", use_container_width=True)
+    refresh = st.button("🔄 Refresh", width="stretch")
+with col_c:
+    verify = st.button("⛓ Verify chain", width="stretch", disabled=not st.session_state.get("access_token"),
+                       help="Recompute the ledger's SHA-256 hash chain")
 
-if refresh:
+if verify:
+    v = api("GET", "/aegis/ledger/verify", timeout=60)
+    if v.status_code == 200 and v.json().get("valid"):
+        st.success(f"✓ Hash chain intact — {v.json().get('checked')} events verified.")
+    elif v.status_code == 200:
+        st.error(f"✗ Chain broken at `{v.json().get('broken_at')}`: {v.json().get('reason')}")
+    else:
+        st.error(f"Verification failed: {v.text[:200]}")
+
+if refresh or "last_result" in st.session_state:  # newest first
     try:
-        res = requests.get(f"{API_BASE}/aegis/audit/{selected_id}", timeout=10)
+        res = requests.get(f"{API_BASE}/aegis/audit/{selected_id}", params={"limit": 100}, timeout=10)
         if res.status_code == 200:
             data = res.json()
             if data:
@@ -555,7 +638,8 @@ if refresh:
                     available_cols = [c for c in cols_to_show if c in df.columns]
                     df = df[available_cols]
 
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df, width="stretch", hide_index=True)
+                st.caption("Timestamps are UTC, newest first.")
             else:
                 st.info("No audit events yet for this customer.")
         else:
@@ -571,14 +655,14 @@ st.caption(
     "Polls Razorpay for all PENDING payment links. "
     "Terminal states (paid / expired / cancelled) move the action to RECONCILED."
 )
-if st.button("▶ Run Reconciliation", disabled=not st.session_state.get("access_token")):
+if st.button("▶ Run Reconciliation", disabled=not can_operate()):
     try:
-        res = requests.post(f"{API_BASE}/aegis/reconcile", headers=auth_headers(), timeout=30)
+        res = api("POST", "/aegis/reconcile", timeout=60)
         if res.status_code == 200:
             data = res.json()
             recs = data.get("reconciled", [])
             if recs:
-                st.dataframe(pd.DataFrame(recs), use_container_width=True)
+                st.dataframe(pd.DataFrame(recs), width="stretch", hide_index=True)
             else:
                 st.info("No pending actions to reconcile.")
         else:
