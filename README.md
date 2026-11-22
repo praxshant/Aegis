@@ -288,6 +288,13 @@ The `Dockerfile` runs the API (internal port 8000) and the dashboard (port 7860)
    The script creates a Docker Space (CPU basic, free), stores the variables as Space secrets (generating `JWT_SECRET_KEY`), and uploads the committed code. Optional: `AEGIS_DEMO_PASSWORD` adds a shareable `demo` operator; `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` (test mode) create real Razorpay test links instead of mock ones.
 4. After the build (~5 min) the app is at `https://<your-hf-username>-aegis.hf.space`. Free Spaces sleep after 48 h without visitors and wake on the next visit.
 
+A Space exposes a single port. By default it serves the Streamlit dashboard; set `AEGIS_PUBLIC_UI=console` before deploying to serve the HTML operator console (and the REST API, including `/webhooks/razorpay`) instead.
+
+### Two operator UIs
+
+- **Streamlit dashboard** (`frontend/app.py`, `streamlit run frontend/app.py`): sign-in, CSV ingestion with activation mode, ML intelligence, agent runs, audit ledger with chain verification, reconciliation. Reads `API_URL` (default `http://127.0.0.1:8000`).
+- **HTML console** (`frontend/index.html`, served by the API at `/`): the same governed loop plus customer search and bulk archive/delete. Tokens live in `sessionStorage` and refresh automatically; all API/CSV data is HTML-escaped before rendering.
+
 Any other Docker host works the same way: `docker build -t aegis . && docker run -p 7860:7860 -e AEGIS_ADMIN_PASSWORD=... -e GEMINI_API_KEY=... aegis`.
 
 ---

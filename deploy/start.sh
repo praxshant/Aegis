@@ -6,6 +6,13 @@ cd "$(dirname "$0")/.."
 
 python deploy/bootstrap.py
 
+# A free Space exposes one port. AEGIS_PUBLIC_UI picks what lives on it:
+#   dashboard (default) -> Streamlit operator dashboard; the API stays internal
+#   console             -> FastAPI itself: HTML console at "/", REST API, webhooks
+if [ "${AEGIS_PUBLIC_UI:-dashboard}" = "console" ]; then
+  exec uvicorn backend.api.main:app --host 0.0.0.0 --port "${PORT:-7860}" --workers 1 --proxy-headers
+fi
+
 # One worker on purpose: SQLite + the in-process per-customer spend lock want a single process.
 uvicorn backend.api.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers &
 

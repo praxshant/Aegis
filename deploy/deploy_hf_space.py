@@ -51,6 +51,7 @@ FORWARDED_SECRETS = [
     "AEGIS_ADMIN_USERNAME", "AEGIS_ADMIN_PASSWORD", "AEGIS_DEMO_USERNAME", "AEGIS_DEMO_PASSWORD",
     "GEMINI_API_KEY", "GEMINI_MODEL", "JWT_SECRET_KEY",
     "RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_ENV", "RAZORPAY_WEBHOOK_SECRET",
+    "AEGIS_PUBLIC_UI",  # "dashboard" (default) or "console"
 ]
 # Not needed at runtime; keeps the Space small.
 EXCLUDE_PREFIXES = ("notebooks-", ".github/")
