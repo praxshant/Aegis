@@ -50,48 +50,58 @@ class Reconciler:
             "hours_since_last": None if pd.isna(hsl) else float(hsl),
         }
 
-    def update_execution_status(self, action_id: str, status: str, rzp_order_id: str = None):
+    def update_execution_status(self, action_id: str, status: str, rzp_order_id: str = None,
+                                payment_status: str = None):
         query = """
-            UPDATE action_execution 
-            SET status = ?, razorpay_order_id = ?, updated_at = CURRENT_TIMESTAMP
+            UPDATE action_execution
+            SET status = ?, razorpay_order_id = COALESCE(?, razorpay_order_id),
+                payment_status = COALESCE(?, payment_status), updated_at = CURRENT_TIMESTAMP
             WHERE action_id = ?
         """
-        params = (status, rzp_order_id, action_id)
+        params = (status, rzp_order_id, payment_status, action_id)
         self.db.execute_query(query, params)
+
+    TERMINAL_STATES = ("paid", "expired", "cancelled", "failed")
+
+    def apply_payment_status(self, link_id: str, payment_status: str) -> Dict[str, Any]:
+        """Record Razorpay's status for a payment link (from polling or a webhook).
+        Terminal states close the action out as RECONCILED. Returns the previous state,
+        or {} if no action owns this link."""
+        df = self.db.query_to_dataframe(
+            "SELECT action_id, customer_id, payment_status, reconciliation_status "
+            "FROM action_execution WHERE razorpay_order_id = ?", (link_id,))
+        if df.empty:
+            return {}
+        row = df.iloc[0]
+        status = (payment_status or "unknown").lower()
+        new_recon = "RECONCILED" if status in self.TERMINAL_STATES else "PENDING"
+        self.db.execute_query("""
+            UPDATE action_execution
+            SET payment_status = ?, reconciliation_status = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE action_id = ?
+        """, (status, new_recon, row["action_id"]))
+        return {
+            "action_id": row["action_id"],
+            "customer_id": row["customer_id"],
+            "old_status": row["reconciliation_status"],
+            "new_status": new_recon,
+            "previous_payment_status": row["payment_status"],
+            "razorpay_status": status,
+        }
 
     def reconcile_pending_actions(self) -> List[Dict[str, Any]]:
         """
-        Finds all actions that are requested or unknown, and checks Razorpay for their true status.
+        Finds all actions whose payment link is still open and asks Razorpay for its true status.
         """
-        query = "SELECT * FROM action_execution WHERE reconciliation_status = 'PENDING' AND razorpay_order_id IS NOT NULL"
+        query = ("SELECT action_id, razorpay_order_id FROM action_execution "
+                 "WHERE reconciliation_status = 'PENDING' AND razorpay_order_id IS NOT NULL")
         df = self.db.query_to_dataframe(query)
-        
+
         results = []
         for _, row in df.iterrows():
-            action_id = row['action_id']
-            link_id = row['razorpay_order_id']
-            
-            # Fetch real status from Razorpay
-            real_status = self.rzp.fetch_payment_link_status(link_id)
-            
-            terminal_states = ["paid", "expired", "cancelled", "failed"]
-            new_status = "RECONCILED" if real_status in terminal_states else "PENDING"
-            
-            # Update DB
-            update_query = """
-                UPDATE action_execution 
-                SET reconciliation_status = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE action_id = ?
-            """
-            self.db.execute_query(update_query, (new_status, action_id))
-            
-            results.append({
-                "action_id": action_id,
-                "old_status": row['reconciliation_status'],
-                "new_status": new_status,
-                "razorpay_status": real_status
-            })
-            
-            logger.info(f"Reconciled action {action_id}: Razorpay status is {real_status}")
-            
+            real_status = self.rzp.fetch_payment_link_status(row["razorpay_order_id"])
+            res = self.apply_payment_status(row["razorpay_order_id"], real_status)
+            if res:
+                results.append({k: res[k] for k in ("action_id", "old_status", "new_status", "razorpay_status")})
+                logger.info(f"Reconciled action {res['action_id']}: Razorpay status is {real_status}")
         return results

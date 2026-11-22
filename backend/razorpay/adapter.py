@@ -1,11 +1,29 @@
 import os
+import hmac
 import time
 import uuid
+import hashlib
 import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
 logger = logging.getLogger("RazorpayAdapter")
+
+# Razorpay rejects descriptions over 2048 chars; the text is LLM-written, so keep it short.
+_MAX_DESCRIPTION = 250
+
+
+def _clip(text: str, limit: int = _MAX_DESCRIPTION) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def verify_webhook_signature(body: bytes, signature: str, secret: str) -> bool:
+    """Razorpay signs the raw webhook body with HMAC-SHA256 using the webhook secret."""
+    if not (body is not None and signature and secret):
+        return False
+    expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
 
 class RazorpayAdapter(ABC):
     """
@@ -23,6 +41,8 @@ class MockRazorpayAdapter(RazorpayAdapter):
     """
     Used for local development, automated tests, and when credentials are missing.
     """
+    mode = "mock"
+
     def __init__(self):
         self._links = {}
         logger.info("Initialized MockRazorpayAdapter")
@@ -39,7 +59,7 @@ class MockRazorpayAdapter(RazorpayAdapter):
             "customer_id": customer_id,
             "amount": amount,
             "currency": currency,
-            "description": description,
+            "description": _clip(description),
             "short_url": f"https://rzp.io/i/{link_id}",
             "status": "created"
         }
@@ -48,8 +68,7 @@ class MockRazorpayAdapter(RazorpayAdapter):
         return response
 
     def fetch_payment_link_status(self, link_id: str) -> str:
-        # Simulate a transition to 'paid' 50% of the time if it's a mock check, for testing reconciliation
-        # Or just return 'created' or 'paid'
+        # Mock links stay 'created' until a (simulated) webhook marks them otherwise.
         link = self._links.get(link_id)
         if not link:
             return "unknown"
@@ -60,6 +79,8 @@ class RazorpayTestAdapter(RazorpayAdapter):
     Used for actual execution against Razorpay Test API.
     Requires RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in environment.
     """
+    mode = "test"
+
     def __init__(self):
         try:
             import razorpay
@@ -71,6 +92,11 @@ class RazorpayTestAdapter(RazorpayAdapter):
         
         if not key_id or not key_secret:
             raise ValueError("Razorpay test credentials not found in environment")
+        # A live key would create real, payable links. Require an explicit opt-in.
+        if key_id.startswith("rzp_live_") and os.getenv("RAZORPAY_ENV", "test").lower() != "live":
+            raise ValueError("Refusing a rzp_live_ key while RAZORPAY_ENV != 'live'")
+        if key_id.startswith("rzp_live_"):
+            self.mode = "live"
             
         self.client = razorpay.Client(auth=(key_id, key_secret))
         logger.info("Initialized RazorpayTestAdapter")
@@ -83,7 +109,7 @@ class RazorpayTestAdapter(RazorpayAdapter):
                 "currency": currency,
                 "accept_partial": False,
                 "reference_id": reference_id,
-                "description": description,
+                "description": _clip(description),
                 "customer": {
                     "contact": "+919876543210", # Valid placeholder for India
                     "email": "customer@example.com",

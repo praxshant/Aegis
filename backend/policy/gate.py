@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from typing import Dict, Any, Optional
 
@@ -93,6 +94,15 @@ class PolicyGate:
             return {"approved": False, "reason": "MISSING_ACTION_TYPE"}
 
         discount_pct = proposal.get("requested_discount_pct", 0)
+
+        # NaN/inf slip past every `<`/`>` comparison below (they are all False), so a
+        # non-finite discount would otherwise be APPROVED and crash the amount maths.
+        try:
+            discount_pct = float(discount_pct)
+        except (TypeError, ValueError):
+            return {"approved": False, "reason": "INVALID_DISCOUNT (not a number)"}
+        if not math.isfinite(discount_pct):
+            return {"approved": False, "reason": "INVALID_DISCOUNT (not finite)"}
 
         # A negative "discount" inflates the charge ABOVE base (final = base*(1 - d/100)).
         # The LLM proposal is untrusted, so reject it deterministically here — otherwise a
